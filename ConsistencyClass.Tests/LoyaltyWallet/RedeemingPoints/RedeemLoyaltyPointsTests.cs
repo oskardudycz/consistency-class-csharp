@@ -12,6 +12,7 @@ public class RedeemLoyaltyPointsTests
 {
     private static readonly MemberId Oskar = MemberId.Random();
     private static readonly MemberId Kuba = MemberId.Random();
+    private static readonly DateTime At = new(2026, 6, 23, 12, 0, 0, DateTimeKind.Utc);
 
     private readonly DatabaseCollection<Member> _members = Database.Collection<Member>();
     private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDocument>());
@@ -43,12 +44,13 @@ public class RedeemLoyaltyPointsTests
     private async Task Earn(WalletNumber walletNumber, int points)
     {
         var wallet = await _store.GetLoyaltyWallet(walletNumber);
-        await _store.SaveLoyaltyWallet(LoyaltyWalletDecider.EarnLoyaltyPoints(
-            new EarnLoyaltyPoints(walletNumber, LoyaltyPoints.Of(points)), wallet));
+        var (state, earned) = LoyaltyWalletDecider.EarnLoyaltyPoints(
+            new EarnLoyaltyPoints(walletNumber, LoyaltyPoints.Of(points), At), wallet);
+        await _store.SaveLoyaltyWallet(state, [earned]);
     }
 
     private Task Redeem(WalletNumber walletNumber, MemberId memberId, int points) =>
-        _redeemHandler.Handle(new RedeemLoyaltyPoints(walletNumber, memberId, LoyaltyPoints.Of(points))).AsTask();
+        _redeemHandler.Handle(new RedeemLoyaltyPoints(walletNumber, memberId, LoyaltyPoints.Of(points), At)).AsTask();
 
     private Task GrantAccess(WalletNumber walletNumber, MemberId memberId) =>
         new GrantWalletAccessHandler(_store.GetLoyaltyWallet, _store.SaveLoyaltyWallet)
@@ -60,7 +62,7 @@ public class RedeemLoyaltyPointsTests
 
     private Task ResetWindow(WalletNumber walletNumber) =>
         new ResetRedemptionWindowHandler(_store.GetLoyaltyWallet, _store.SaveLoyaltyWallet)
-            .Handle(new ResetRedemptionWindow(walletNumber)).AsTask();
+            .Handle(new ResetRedemptionWindow(walletNumber, At)).AsTask();
 
     private async Task<LoyaltyWallet.Active> ActiveWallet(WalletNumber walletNumber)
     {

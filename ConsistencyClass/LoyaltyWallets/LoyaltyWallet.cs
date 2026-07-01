@@ -15,6 +15,38 @@ public record WalletNumber(string Value)
 
 public enum RedemptionCadence { Weekly, Monthly }
 
+public abstract record LoyaltyWalletEvent
+{
+    public record LoyaltyWalletOpened(
+        WalletNumber WalletNumber,
+        MemberId OwnerId,
+        RedemptionCadence Cadence,
+        RedemptionLimit MaxRedemptionCount,
+        LoyaltyPoints EarnedPoints,
+        LoyaltyPoints RedeemedPoints): LoyaltyWalletEvent;
+
+    public record LoyaltyPointsEarned(
+        WalletNumber WalletNumber,
+        MemberId OwnerId,
+        LoyaltyPoints Points,
+        DateTime At): LoyaltyWalletEvent;
+
+    public record LoyaltyPointsRedeemed(
+        WalletNumber WalletNumber,
+        MemberId OwnerId,
+        MemberId ByMemberId,
+        LoyaltyPoints Points,
+        LoyaltyPoints Burned,
+        DateTime At): LoyaltyWalletEvent;
+
+    public record RedemptionWindowReset(
+        WalletNumber WalletNumber,
+        MemberId OwnerId,
+        DateTime At): LoyaltyWalletEvent;
+
+    private LoyaltyWalletEvent() { }
+}
+
 public abstract record LoyaltyWallet
 {
     public record NotExisting: LoyaltyWallet;
@@ -57,12 +89,15 @@ public abstract record LoyaltyWalletCommand
 
     public record EarnLoyaltyPoints(
         WalletNumber WalletNumber,
-        LoyaltyPoints Points): LoyaltyWalletCommand;
+        LoyaltyPoints Points,
+        DateTime At): LoyaltyWalletCommand;
 
     public record RedeemLoyaltyPoints(
         WalletNumber WalletNumber,
         MemberId MemberId,
-        LoyaltyPoints Points): LoyaltyWalletCommand;
+        LoyaltyPoints Points,
+        DateTime At,
+        LoyaltyPoints? Burned = null): LoyaltyWalletCommand;
 
     public record GrantWalletAccess(
         WalletNumber WalletNumber,
@@ -77,7 +112,8 @@ public abstract record LoyaltyWalletCommand
         RedemptionCadence Cadence): LoyaltyWalletCommand;
 
     public record ResetRedemptionWindow(
-        WalletNumber WalletNumber): LoyaltyWalletCommand;
+        WalletNumber WalletNumber,
+        DateTime At): LoyaltyWalletCommand;
 
     public record DeactivateWallet(
         WalletNumber WalletNumber): LoyaltyWalletCommand;
@@ -90,41 +126,76 @@ public abstract record LoyaltyWalletCommand
 
 public static class LoyaltyWalletDecider
 {
-    public static LoyaltyWallet Decide(LoyaltyWalletCommand command, LoyaltyWallet state) =>
-        command switch
+    public static (LoyaltyWallet State, LoyaltyWalletEvent[] Events) Decide(
+        LoyaltyWalletCommand command, LoyaltyWallet state)
+    {
+        switch (command)
         {
-            OpenLoyaltyWallet cmd => OpenLoyaltyWallet(cmd, state),
-            EarnLoyaltyPoints cmd => EarnLoyaltyPoints(cmd, state),
-            RedeemLoyaltyPoints cmd => RedeemLoyaltyPoints(cmd, state),
-            SetRedemptionCadence cmd => SetRedemptionCadence(cmd, state),
-            GrantWalletAccess cmd => GrantWalletAccess(cmd, state),
-            RevokeWalletAccess cmd => RevokeWalletAccess(cmd, state),
-            ResetRedemptionWindow _ => ResetRedemptionWindow(state),
-            DeactivateWallet _ => DeactivateWallet(state),
-            CloseWallet _ => CloseWallet(state),
-            _ => throw new ArgumentOutOfRangeException(nameof(command))
-        };
+            case OpenLoyaltyWallet cmd:
+                return OpenLoyaltyWallet(cmd, state);
+            case EarnLoyaltyPoints cmd:
+                {
+                    var (s, e) = EarnLoyaltyPoints(cmd, state);
+                    return (s, [e]);
+                }
+            case RedeemLoyaltyPoints cmd:
+                {
+                    var (s, e) = RedeemLoyaltyPoints(cmd, state);
+                    return (s, [e]);
+                }
+            case SetRedemptionCadence cmd:
+                return (SetRedemptionCadence(cmd, state), []);
+            case GrantWalletAccess cmd:
+                return (GrantWalletAccess(cmd, state), []);
+            case RevokeWalletAccess cmd:
+                return (RevokeWalletAccess(cmd, state), []);
+            case ResetRedemptionWindow cmd:
+                {
+                    var (s, e) = ResetRedemptionWindow(cmd, state);
+                    return (s, [e]);
+                }
+            case DeactivateWallet _:
+                return (DeactivateWallet(state), []);
+            case CloseWallet _:
+                return (CloseWallet(state), []);
+            default:
+                throw new ArgumentOutOfRangeException(nameof(command));
+        }
+    }
 
-    public static LoyaltyWallet OpenLoyaltyWallet(
+    public static (LoyaltyWallet State, LoyaltyWalletEvent[] Events) OpenLoyaltyWallet(
         OpenLoyaltyWallet command,
-        LoyaltyWallet state) =>
-        state is NotExisting
-            ? Open(command.WalletNumber, command.OwnerId, command.Cadence, command.MaxRedemptionCount)
-            : state;
+        LoyaltyWallet state)
+    {
+        if (state is not NotExisting)
+            return (state, []);
 
-    public static Active EarnLoyaltyPoints(
+        var wallet = Open(command.WalletNumber, command.OwnerId, command.Cadence, command.MaxRedemptionCount);
+        return (wallet, [new LoyaltyWalletEvent.LoyaltyWalletOpened(
+            wallet.WalletNumber,
+            wallet.OwnerId,
+            wallet.Cadence,
+            command.MaxRedemptionCount,
+            wallet.PointsLimit.EarnedPoints,
+            wallet.PointsLimit.RedeemedPoints)]);
+    }
+
+    public static (LoyaltyWallet.Active State, LoyaltyWalletEvent.LoyaltyPointsEarned Event) EarnLoyaltyPoints(
         EarnLoyaltyPoints command,
         LoyaltyWallet state)
     {
         var wallet = AssertActive(state);
-        return wallet with { PointsLimit = wallet.PointsLimit.Earn(command.Points) };
+        var earned = wallet with { PointsLimit = wallet.PointsLimit.Earn(command.Points) };
+        return (earned, new LoyaltyWalletEvent.LoyaltyPointsEarned(
+            wallet.WalletNumber, wallet.OwnerId, command.Points, command.At));
     }
 
-    public static Active RedeemLoyaltyPoints(
+    public static (LoyaltyWallet.Active State, LoyaltyWalletEvent.LoyaltyPointsRedeemed Event) RedeemLoyaltyPoints(
         RedeemLoyaltyPoints command,
         LoyaltyWallet state)
     {
         var wallet = AssertActive(state);
+        var burned = command.Burned ?? command.Points;
 
         if (!wallet.Access.Has(command.MemberId))
             throw new InvalidOperationException("Not authorized to redeem");
@@ -132,10 +203,13 @@ public static class LoyaltyWalletDecider
         if (wallet.PointsLimit.RedemptionsLeft <= 0)
             throw new InvalidOperationException("Redemption window exhausted");
 
-        if (wallet.PointsLimit.AvailablePoints.Value < command.Points.Value)
+        if (wallet.PointsLimit.AvailablePoints.Value < burned.Value)
             throw new InvalidOperationException("Not enough points to redeem");
 
-        return wallet with { PointsLimit = wallet.PointsLimit.Redeem(command.Points) };
+        return (wallet with { PointsLimit = wallet.PointsLimit.Redeem(burned) },
+            new LoyaltyWalletEvent.LoyaltyPointsRedeemed(
+                wallet.WalletNumber, wallet.OwnerId, command.MemberId,
+                command.Points, burned, command.At));
     }
 
     public static Active SetRedemptionCadence(
@@ -146,10 +220,13 @@ public static class LoyaltyWalletDecider
         return wallet with { Cadence = command.Cadence };
     }
 
-    public static Active ResetRedemptionWindow(LoyaltyWallet state)
+    public static (LoyaltyWallet.Active State, LoyaltyWalletEvent.RedemptionWindowReset Event) ResetRedemptionWindow(
+        ResetRedemptionWindow command,
+        LoyaltyWallet state)
     {
         var wallet = AssertActive(state);
-        return wallet with { PointsLimit = wallet.PointsLimit.ResetRedemptionCount() };
+        return (wallet with { PointsLimit = wallet.PointsLimit.ResetRedemptionCount() },
+            new LoyaltyWalletEvent.RedemptionWindowReset(wallet.WalletNumber, wallet.OwnerId, command.At));
     }
 
     public static LoyaltyWallet DeactivateWallet(LoyaltyWallet state)

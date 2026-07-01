@@ -6,5 +6,5 @@ using static LoyaltyWalletDecider;
 public class RevokeWalletAccessHandler(GetLoyaltyWallet getLoyaltyWallet, SaveLoyaltyWallet saveLoyaltyWallet)
 {
     public async ValueTask Handle(RevokeWalletAccess command) =>
-        await saveLoyaltyWallet(RevokeWalletAccess(command, await getLoyaltyWallet(command.WalletNumber)));
+        await saveLoyaltyWallet(RevokeWalletAccess(command, await getLoyaltyWallet(command.WalletNumber)), []);
 }

@@ -11,16 +11,17 @@ public class LoyaltyWalletFixture
     public readonly WalletNumber WalletNumber = WalletNumber.Random();
     public readonly MemberId Owner = MemberId.Random();
     public readonly MemberId FamilyMember = MemberId.Random();
+    public readonly DateTime At = new DateTime(2026, 6, 23, 12, 0, 0, DateTimeKind.Utc);
 
     public LoyaltyWallet.Active OpenWallet() =>
         (LoyaltyWallet.Active)OpenLoyaltyWallet(
             new OpenLoyaltyWallet(WalletNumber, Owner, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
-            LoyaltyWallet.Initial());
+            LoyaltyWallet.Initial()).State;
 
     public LoyaltyWallet.Active WalletWithPoints(int points) =>
-        (LoyaltyWallet.Active)EarnLoyaltyPoints(
-            new EarnLoyaltyPoints(WalletNumber, LoyaltyPoints.Of(points)),
-            OpenWallet());
+        EarnLoyaltyPoints(
+            new EarnLoyaltyPoints(WalletNumber, LoyaltyPoints.Of(points), At),
+            OpenWallet()).State;
 }
 
 public class LoyaltyWalletTests
@@ -28,9 +29,9 @@ public class LoyaltyWalletTests
     public class Opening(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
     {
         [Fact]
-        public void OpensNotExistingWallet()
+        public void OpensNotExistingWalletAndEmitsLoyaltyWalletOpened()
         {
-            var newState = OpenLoyaltyWallet(
+            var (newState, events) = OpenLoyaltyWallet(
                 new OpenLoyaltyWallet(fixture.WalletNumber, fixture.Owner, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
                 LoyaltyWallet.Initial());
 
@@ -40,18 +41,26 @@ public class LoyaltyWalletTests
                 LoyaltyPointsLimit.Initial(RedemptionLimit.Of(5)),
                 RedemptionCadence.Weekly,
                 WalletAccess.Of(fixture.Owner)));
+            events.ShouldHaveSingleItem().ShouldBe(new LoyaltyWalletEvent.LoyaltyWalletOpened(
+                fixture.WalletNumber,
+                fixture.Owner,
+                RedemptionCadence.Weekly,
+                RedemptionLimit.Of(5),
+                LoyaltyPoints.Zero,
+                LoyaltyPoints.Zero));
         }
 
         [Fact]
-        public void LeavesAlreadyActiveWalletUnchanged()
+        public void LeavesAlreadyActiveWalletUnchangedWithoutEvents()
         {
             var activeWallet = fixture.OpenWallet();
 
-            var newState = OpenLoyaltyWallet(
+            var (newState, events) = OpenLoyaltyWallet(
                 new OpenLoyaltyWallet(fixture.WalletNumber, fixture.Owner, RedemptionLimit.Of(3), RedemptionCadence.Monthly),
                 activeWallet);
 
             newState.ShouldBeSameAs(activeWallet);
+            events.ShouldBeEmpty();
         }
 
         [Fact]
@@ -59,11 +68,12 @@ public class LoyaltyWalletTests
         {
             var deactivatedWallet = DeactivateWallet(fixture.OpenWallet());
 
-            var newState = OpenLoyaltyWallet(
+            var (newState, events) = OpenLoyaltyWallet(
                 new OpenLoyaltyWallet(fixture.WalletNumber, fixture.Owner, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
                 deactivatedWallet);
 
             newState.ShouldBeSameAs(deactivatedWallet);
+            events.ShouldBeEmpty();
         }
 
         [Fact]
@@ -71,26 +81,29 @@ public class LoyaltyWalletTests
         {
             var closedWallet = CloseWallet(fixture.OpenWallet());
 
-            var newState = OpenLoyaltyWallet(
+            var (newState, events) = OpenLoyaltyWallet(
                 new OpenLoyaltyWallet(fixture.WalletNumber, fixture.Owner, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
                 closedWallet);
 
             newState.ShouldBeSameAs(closedWallet);
+            events.ShouldBeEmpty();
         }
     }
 
     public class EarningPoints(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
     {
         [Fact]
-        public void EarnsPointsOnActiveWallet()
+        public void EarnsPointsOnActiveWalletAndEmitsLoyaltyPointsEarned()
         {
             var wallet = fixture.OpenWallet();
 
-            var newState = EarnLoyaltyPoints(
-                new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+            var (newState, earned) = EarnLoyaltyPoints(
+                new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100), fixture.At),
                 wallet);
 
             newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Earn(LoyaltyPoints.Of(100)) });
+            earned.ShouldBe(new LoyaltyWalletEvent.LoyaltyPointsEarned(
+                fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(100), fixture.At));
         }
 
         [Fact]
@@ -98,7 +111,7 @@ public class LoyaltyWalletTests
         {
             Should.Throw<InvalidOperationException>(() =>
                     EarnLoyaltyPoints(
-                        new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+                        new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100), fixture.At),
                         LoyaltyWallet.Initial()))
                 .Message.ShouldBe("Wallet doesn't exist");
         }
@@ -108,7 +121,7 @@ public class LoyaltyWalletTests
         {
             Should.Throw<InvalidOperationException>(() =>
                     EarnLoyaltyPoints(
-                        new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+                        new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100), fixture.At),
                         DeactivateWallet(fixture.OpenWallet())))
                 .Message.ShouldBe("Wallet is not active");
         }
@@ -118,7 +131,7 @@ public class LoyaltyWalletTests
         {
             Should.Throw<InvalidOperationException>(() =>
                     EarnLoyaltyPoints(
-                        new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+                        new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100), fixture.At),
                         CloseWallet(fixture.OpenWallet())))
                 .Message.ShouldBe("Wallet is closed");
         }
@@ -127,15 +140,32 @@ public class LoyaltyWalletTests
     public class RedeemingPoints(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
     {
         [Fact]
-        public void RedeemsPointsOnActiveWallet()
+        public void RedeemsPointsOnActiveWalletAndEmitsLoyaltyPointsRedeemed()
         {
             var wallet = fixture.WalletWithPoints(100);
 
-            var newState = RedeemLoyaltyPoints(
-                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40)),
+            var (newState, redeemed) = RedeemLoyaltyPoints(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40), fixture.At),
                 wallet);
 
             newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Redeem(LoyaltyPoints.Of(40)) });
+            redeemed.ShouldBe(new LoyaltyWalletEvent.LoyaltyPointsRedeemed(
+                fixture.WalletNumber, fixture.Owner, fixture.Owner,
+                LoyaltyPoints.Of(40), LoyaltyPoints.Of(40), fixture.At));
+        }
+
+        [Fact]
+        public void BurnsThePolicyAmountWhileRecordingTheRedeemedAmount()
+        {
+            var wallet = fixture.WalletWithPoints(100);
+            var (newState, redeemed) = RedeemLoyaltyPoints(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(100), fixture.At, LoyaltyPoints.Of(95)),
+                wallet);
+
+            newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Redeem(LoyaltyPoints.Of(95)) });
+            redeemed.ShouldBe(new LoyaltyWalletEvent.LoyaltyPointsRedeemed(
+                fixture.WalletNumber, fixture.Owner, fixture.Owner,
+                LoyaltyPoints.Of(100), LoyaltyPoints.Of(95), fixture.At));
         }
 
         [Fact]
@@ -143,7 +173,7 @@ public class LoyaltyWalletTests
         {
             Should.Throw<InvalidOperationException>(() =>
                     RedeemLoyaltyPoints(
-                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(50)),
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(50), fixture.At),
                         fixture.WalletWithPoints(20)))
                 .Message.ShouldBe("Not enough points to redeem");
         }
@@ -153,7 +183,7 @@ public class LoyaltyWalletTests
         {
             Should.Throw<InvalidOperationException>(() =>
                     RedeemLoyaltyPoints(
-                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40)),
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40), fixture.At),
                         LoyaltyWallet.Initial()))
                 .Message.ShouldBe("Wallet doesn't exist");
         }
@@ -163,7 +193,7 @@ public class LoyaltyWalletTests
         {
             Should.Throw<InvalidOperationException>(() =>
                     RedeemLoyaltyPoints(
-                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40)),
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40), fixture.At),
                         DeactivateWallet(fixture.OpenWallet())))
                 .Message.ShouldBe("Wallet is not active");
         }
@@ -173,7 +203,7 @@ public class LoyaltyWalletTests
         {
             Should.Throw<InvalidOperationException>(() =>
                     RedeemLoyaltyPoints(
-                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40)),
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40), fixture.At),
                         CloseWallet(fixture.OpenWallet())))
                 .Message.ShouldBe("Wallet is closed");
         }
@@ -207,25 +237,31 @@ public class LoyaltyWalletTests
     public class ResettingRedemptionWindow(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
     {
         [Fact]
-        public void ResetsRedemptionCountKeepingBalance()
+        public void ResetsRedemptionCountKeepingBalanceAndEmitsRedemptionWindowReset()
         {
             var walletAfterRedeem = RedeemLoyaltyPoints(
-                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(10)),
-                fixture.WalletWithPoints(100));
+                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(10), fixture.At),
+                fixture.WalletWithPoints(100)).State;
 
-            var newState = ResetRedemptionWindow(walletAfterRedeem);
+            var (newState, reset) = ResetRedemptionWindow(
+                new ResetRedemptionWindow(fixture.WalletNumber, fixture.At),
+                walletAfterRedeem);
 
             newState.ShouldBe(walletAfterRedeem with
             {
                 PointsLimit = walletAfterRedeem.PointsLimit.ResetRedemptionCount()
             });
+            reset.ShouldBe(new LoyaltyWalletEvent.RedemptionWindowReset(
+                fixture.WalletNumber, fixture.Owner, fixture.At));
         }
 
         [Fact]
         public void CannotResetWindowIfWalletNotActive()
         {
             Should.Throw<InvalidOperationException>(() =>
-                    ResetRedemptionWindow(DeactivateWallet(fixture.OpenWallet())))
+                    ResetRedemptionWindow(
+                        new ResetRedemptionWindow(fixture.WalletNumber, fixture.At),
+                        DeactivateWallet(fixture.OpenWallet())))
                 .Message.ShouldBe("Wallet is not active");
         }
     }
@@ -236,8 +272,8 @@ public class LoyaltyWalletTests
         public void DeactivatesActiveWalletKeepingData()
         {
             var walletAfterRedeem = RedeemLoyaltyPoints(
-                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(10)),
-                fixture.WalletWithPoints(100));
+                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(10), fixture.At),
+                fixture.WalletWithPoints(100)).State;
 
             var newState = DeactivateWallet(walletAfterRedeem);
 
@@ -312,7 +348,7 @@ public class LoyaltyWalletTests
         [Fact]
         public void RoutesOpenLoyaltyWallet()
         {
-            var newState = Decide(
+            var (newState, _) = Decide(
                 new OpenLoyaltyWallet(fixture.WalletNumber, fixture.Owner, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
                 LoyaltyWallet.Initial());
 
@@ -329,8 +365,8 @@ public class LoyaltyWalletTests
         {
             var wallet = fixture.OpenWallet();
 
-            var newState = Decide(
-                new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+            var (newState, _) = Decide(
+                new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100), fixture.At),
                 wallet);
 
             newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Earn(LoyaltyPoints.Of(100)) });
@@ -341,8 +377,8 @@ public class LoyaltyWalletTests
         {
             var wallet = fixture.WalletWithPoints(100);
 
-            var newState = Decide(
-                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40)),
+            var (newState, _) = Decide(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40), fixture.At),
                 wallet);
 
             newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Redeem(LoyaltyPoints.Of(40)) });
@@ -353,7 +389,7 @@ public class LoyaltyWalletTests
         {
             var opened = fixture.OpenWallet();
 
-            var newState = Decide(
+            var (newState, _) = Decide(
                 new SetRedemptionCadence(fixture.WalletNumber, RedemptionCadence.Monthly),
                 opened);
 
@@ -364,10 +400,12 @@ public class LoyaltyWalletTests
         public void RoutesResetRedemptionWindow()
         {
             var walletAfterRedeem = RedeemLoyaltyPoints(
-                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(10)),
-                fixture.WalletWithPoints(100));
+                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(10), fixture.At),
+                fixture.WalletWithPoints(100)).State;
 
-            var newState = Decide(new ResetRedemptionWindow(fixture.WalletNumber), walletAfterRedeem);
+            var (newState, _) = Decide(
+                new ResetRedemptionWindow(fixture.WalletNumber, fixture.At),
+                walletAfterRedeem);
 
             newState.ShouldBe(walletAfterRedeem with
             {
@@ -380,20 +418,21 @@ public class LoyaltyWalletTests
         {
             var wallet = fixture.OpenWallet();
 
-            Decide(new DeactivateWallet(fixture.WalletNumber), wallet)
-                .ShouldBe(new LoyaltyWallet.Deactivated(
-                    wallet.WalletNumber,
-                    wallet.OwnerId,
-                    wallet.PointsLimit,
-                    wallet.Cadence,
-                    wallet.Access));
+            var (newState, _) = Decide(new DeactivateWallet(fixture.WalletNumber), wallet);
+
+            newState.ShouldBe(new LoyaltyWallet.Deactivated(
+                wallet.WalletNumber,
+                wallet.OwnerId,
+                wallet.PointsLimit,
+                wallet.Cadence,
+                wallet.Access));
         }
 
         [Fact]
         public void RoutesCloseWallet()
         {
-            Decide(new CloseWallet(fixture.WalletNumber), fixture.OpenWallet())
-                .ShouldBeOfType<LoyaltyWallet.Closed>();
+            var (newState, _) = Decide(new CloseWallet(fixture.WalletNumber), fixture.OpenWallet());
+            newState.ShouldBe(new LoyaltyWallet.Closed(fixture.WalletNumber));
         }
 
         [Fact]
@@ -401,7 +440,7 @@ public class LoyaltyWalletTests
         {
             var wallet = fixture.OpenWallet();
 
-            var newState = Decide(
+            var (newState, _) = Decide(
                 new GrantWalletAccess(fixture.WalletNumber, fixture.FamilyMember),
                 wallet);
 
@@ -416,7 +455,7 @@ public class LoyaltyWalletTests
                 new GrantWalletAccess(fixture.WalletNumber, fixture.FamilyMember),
                 wallet);
 
-            var newState = Decide(
+            var (newState, _) = Decide(
                 new RevokeWalletAccess(fixture.WalletNumber, fixture.FamilyMember),
                 shared);
 
@@ -431,8 +470,8 @@ public class LoyaltyWalletTests
         {
             var wallet = fixture.WalletWithPoints(100);
 
-            var newState = RedeemLoyaltyPoints(
-                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40)),
+            var (newState, _) = RedeemLoyaltyPoints(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.Owner, LoyaltyPoints.Of(40), fixture.At),
                 wallet);
 
             newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Redeem(LoyaltyPoints.Of(40)) });
@@ -448,8 +487,8 @@ public class LoyaltyWalletTests
                 wallet);
 
             // when
-            var newState = RedeemLoyaltyPoints(
-                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.FamilyMember, LoyaltyPoints.Of(40)),
+            var (newState, _) = RedeemLoyaltyPoints(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.FamilyMember, LoyaltyPoints.Of(40), fixture.At),
                 shared);
 
             // then
@@ -461,7 +500,7 @@ public class LoyaltyWalletTests
         {
             Should.Throw<InvalidOperationException>(() =>
                     RedeemLoyaltyPoints(
-                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.FamilyMember, LoyaltyPoints.Of(40)),
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.FamilyMember, LoyaltyPoints.Of(40), fixture.At),
                         fixture.WalletWithPoints(100)))
                 .Message.ShouldBe("Not authorized to redeem");
         }
@@ -480,7 +519,7 @@ public class LoyaltyWalletTests
 
             Should.Throw<InvalidOperationException>(() =>
                     RedeemLoyaltyPoints(
-                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.FamilyMember, LoyaltyPoints.Of(40)),
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, fixture.FamilyMember, LoyaltyPoints.Of(40), fixture.At),
                         revoked))
                 .Message.ShouldBe("Not authorized to redeem");
         }

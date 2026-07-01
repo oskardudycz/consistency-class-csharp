@@ -1,12 +1,17 @@
 namespace ConsistencyClass.LoyaltyWallets;
 
+using ConsistencyClass.Core.Projections;
 using ConsistencyClass.LoyaltyWallets.Access;
+using ConsistencyClass.LoyaltyWallets.ActivityReports;
+using ConsistencyClass.LoyaltyWallets.MonthlySummaries;
 using ConsistencyClass.Membership;
 
 public delegate ValueTask<LoyaltyWallet> GetLoyaltyWallet(WalletNumber walletNumber);
 public delegate ValueTask<IReadOnlyList<LoyaltyWallet>> FindLoyaltyWalletsByOwners(IReadOnlyList<MemberId> ownerIds);
-public delegate ValueTask SaveLoyaltyWallet(LoyaltyWallet wallet);
-public delegate ValueTask SaveLoyaltyWallets(IReadOnlyList<LoyaltyWallet> wallets);
+public delegate ValueTask SaveLoyaltyWallet(LoyaltyWallet wallet, IReadOnlyList<LoyaltyWalletEvent> events);
+
+public record LoyaltyWalletUpdate(LoyaltyWallet State, IReadOnlyList<LoyaltyWalletEvent> Events);
+public delegate ValueTask SaveLoyaltyWallets(IReadOnlyList<LoyaltyWalletUpdate> updates);
 
 internal abstract record WalletDocument
 {
@@ -26,8 +31,24 @@ internal abstract record WalletDocument
     internal sealed record Closed(WalletNumber WalletNumber): WalletDocument;
 }
 
-internal class LoyaltyWalletStore(DatabaseCollection<WalletDocument> wallets)
+internal class LoyaltyWalletStore
 {
+    private readonly DatabaseCollection<WalletDocument> wallets;
+    private readonly IReadOnlyList<IProjection<LoyaltyWalletEvent>> projections;
+
+    public LoyaltyWalletStore(DatabaseCollection<WalletDocument> wallets)
+    {
+        this.wallets = wallets;
+        projections =
+        [
+            ActivityReport.Projection(ActivityReports),
+            MonthlySummary.Projection(MonthlySummaries)
+        ];
+    }
+
+    internal DatabaseCollection<ActivityReport> ActivityReports { get; } = Database.Collection<ActivityReport>();
+    internal DatabaseCollection<MonthlySummary> MonthlySummaries { get; } = Database.Collection<MonthlySummary>();
+
     public async ValueTask<LoyaltyWallet> GetLoyaltyWallet(WalletNumber walletNumber)
     {
         var doc = await wallets.Find(walletNumber.Value);
@@ -45,16 +66,17 @@ internal class LoyaltyWalletStore(DatabaseCollection<WalletDocument> wallets)
             .ToList();
     }
 
-    public async ValueTask SaveLoyaltyWallet(LoyaltyWallet wallet)
+    public async ValueTask SaveLoyaltyWallet(LoyaltyWallet wallet, IReadOnlyList<LoyaltyWalletEvent> events)
     {
         var (key, doc) = ToDocument(wallet);
         await wallets.Save(key, doc);
+        await Projections.ApplyProjections(projections, events);
     }
 
-    public async ValueTask SaveLoyaltyWallets(IReadOnlyList<LoyaltyWallet> toSave)
+    public async ValueTask SaveLoyaltyWallets(IReadOnlyList<LoyaltyWalletUpdate> updates)
     {
-        foreach (var wallet in toSave)
-            await SaveLoyaltyWallet(wallet);
+        foreach (var update in updates)
+            await SaveLoyaltyWallet(update.State, update.Events);
     }
 
     private static (string Key, WalletDocument Doc) ToDocument(LoyaltyWallet wallet) =>

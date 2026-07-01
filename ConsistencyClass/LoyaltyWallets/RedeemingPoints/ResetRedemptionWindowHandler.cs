@@ -5,6 +5,9 @@ using static LoyaltyWalletDecider;
 
 public class ResetRedemptionWindowHandler(GetLoyaltyWallet getLoyaltyWallet, SaveLoyaltyWallet saveLoyaltyWallet)
 {
-    public async ValueTask Handle(ResetRedemptionWindow command) =>
-        await saveLoyaltyWallet(ResetRedemptionWindow(await getLoyaltyWallet(command.WalletNumber)));
+    public async ValueTask Handle(ResetRedemptionWindow command)
+    {
+        var (state, @event) = ResetRedemptionWindow(command, await getLoyaltyWallet(command.WalletNumber));
+        await saveLoyaltyWallet(state, [@event]);
+    }
 }

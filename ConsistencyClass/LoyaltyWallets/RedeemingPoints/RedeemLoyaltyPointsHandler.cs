@@ -13,10 +13,11 @@ public class RedeemLoyaltyPointsHandler(
     {
         var wallet = await getLoyaltyWallet(command.WalletNumber);
 
-        var points = wallet is LoyaltyWallet.Active active
+        var burned = wallet is LoyaltyWallet.Active active
             ? BenefitPolicy.Apply(command.Points, await getMemberTier(active.OwnerId))
             : command.Points;
 
-        await saveLoyaltyWallet(RedeemLoyaltyPoints(command with { Points = points }, wallet));
+        var (state, @event) = RedeemLoyaltyPoints(command with { Burned = burned }, wallet);
+        await saveLoyaltyWallet(state, [@event]);
     }
 }

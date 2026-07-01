@@ -27,8 +27,9 @@ public class EarnLoyaltyPointsHandler(
             .Select(c =>
             {
                 var wallet = activeByOwner[c.Member];
-                return (LoyaltyWallet)EarnLoyaltyPoints(
-                    new EarnLoyaltyPoints(wallet.WalletNumber, c.Amount), wallet);
+                var (state, earned) = EarnLoyaltyPoints(
+                    new EarnLoyaltyPoints(wallet.WalletNumber, c.Amount, @event.At), wallet);
+                return new LoyaltyWalletUpdate(state, [earned]);
             })
             .ToList();
 

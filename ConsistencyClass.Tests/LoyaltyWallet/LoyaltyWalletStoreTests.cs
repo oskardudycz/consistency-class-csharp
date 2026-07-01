@@ -1,5 +1,7 @@
 using ConsistencyClass.LoyaltyWallets;
 using ConsistencyClass.Membership;
+using static ConsistencyClass.LoyaltyWallets.LoyaltyWalletCommand;
+using static ConsistencyClass.LoyaltyWallets.LoyaltyWalletDecider;
 
 namespace ConsistencyClass.Tests.LoyaltyWallets;
 
@@ -16,7 +18,7 @@ public class LoyaltyWalletStoreTests
     private async Task<LoyaltyWallet.Active> Enroll(MemberId ownerId)
     {
         var wallet = ActiveWallet(ownerId);
-        await _store.SaveLoyaltyWallet(wallet);
+        await _store.SaveLoyaltyWallet(wallet, []);
         return wallet;
     }
 
@@ -48,7 +50,7 @@ public class LoyaltyWalletStoreTests
         private async Task<LoyaltyWallet.Active> Enroll(MemberId ownerId)
         {
             var wallet = LoyaltyWallet.Open(WalletNumber.Random(), ownerId, RedemptionCadence.Monthly, RedemptionLimit.Of(10));
-            await _store.SaveLoyaltyWallet(wallet);
+            await _store.SaveLoyaltyWallet(wallet, []);
             return wallet;
         }
 
@@ -99,7 +101,7 @@ public class LoyaltyWalletStoreTests
         private async Task<LoyaltyWallet.Active> Enroll(MemberId ownerId)
         {
             var wallet = LoyaltyWallet.Open(WalletNumber.Random(), ownerId, RedemptionCadence.Monthly, RedemptionLimit.Of(10));
-            await _store.SaveLoyaltyWallet(wallet);
+            await _store.SaveLoyaltyWallet(wallet, []);
             return wallet;
         }
 
@@ -117,8 +119,8 @@ public class LoyaltyWalletStoreTests
 
             // when both are credited in a single batch
             await _store.SaveLoyaltyWallets([
-                first with { PointsLimit = first.PointsLimit.Earn(LoyaltyPoints.Of(30)) },
-                second with { PointsLimit = second.PointsLimit.Earn(LoyaltyPoints.Of(70)) },
+                new LoyaltyWalletUpdate(first with { PointsLimit = first.PointsLimit.Earn(LoyaltyPoints.Of(30)) }, []),
+                new LoyaltyWalletUpdate(second with { PointsLimit = second.PointsLimit.Earn(LoyaltyPoints.Of(70)) }, []),
             ]);
 
             // then both wallets reflect their new balance
@@ -126,6 +128,62 @@ public class LoyaltyWalletStoreTests
             var byOwner = reloaded.ToDictionary(w => OwnerOf(w));
             BalanceOf(byOwner[firstOwner]).ShouldBe(30);
             BalanceOf(byOwner[secondOwner]).ShouldBe(70);
+        }
+    }
+
+    public class Projections
+    {
+        private static readonly DateTime At = new(2026, 6, 23, 12, 0, 0, DateTimeKind.Utc);
+
+        private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDocument>());
+
+        [Fact]
+        public async Task WritesTheActivityReportAndMonthlySummaryAlongsideTheWallet()
+        {
+            // given an opened wallet earning and redeeming within one window
+            var owner = MemberId.Random();
+            var walletNumber = WalletNumber.Random();
+
+            var opened = OpenLoyaltyWallet(
+                new OpenLoyaltyWallet(walletNumber, owner, RedemptionLimit.Of(5), RedemptionCadence.Monthly),
+                LoyaltyWallet.Initial());
+            await _store.SaveLoyaltyWallet(opened.State, opened.Events);
+
+            var earned = EarnLoyaltyPoints(
+                new EarnLoyaltyPoints(walletNumber, LoyaltyPoints.Of(100), At),
+                await _store.GetLoyaltyWallet(walletNumber));
+            await _store.SaveLoyaltyWallet(earned.State, [earned.Event]);
+
+            var redeemed = RedeemLoyaltyPoints(
+                new RedeemLoyaltyPoints(walletNumber, owner, LoyaltyPoints.Of(40), At),
+                await _store.GetLoyaltyWallet(walletNumber));
+            await _store.SaveLoyaltyWallet(redeemed.State, [redeemed.Event]);
+
+            var reset = ResetRedemptionWindow(
+                new ResetRedemptionWindow(walletNumber, At),
+                await _store.GetLoyaltyWallet(walletNumber));
+            await _store.SaveLoyaltyWallet(reset.State, [reset.Event]);
+
+            // then the activity report groups the activity into windows
+            var report = await _store.ActivityReports.Find(walletNumber.Value);
+            report.ShouldNotBeNull();
+            report.OwnerId.ShouldBe(owner);
+            report.ClosedWindows.Count.ShouldBe(1);
+            report.ClosedWindows[0].Earned.ShouldBe(100);
+            report.ClosedWindows[0].Redeemed.ShouldBe(40);
+            report.ClosedWindows[0].Burned.ShouldBe(40);
+            report.ClosedWindows[0].RedemptionCount.ShouldBe(1);
+            report.CurrentWindow.WindowNumber.ShouldBe(2);
+            report.CurrentWindow.HadActivity.ShouldBeFalse();
+
+            // and the monthly summary aggregates the month's totals
+            var summary = await _store.MonthlySummaries.Find($"{walletNumber.Value}:2026-06");
+            summary.ShouldNotBeNull();
+            summary.TotalEarned.ShouldBe(100);
+            summary.TotalRedeemed.ShouldBe(40);
+            summary.TotalBurned.ShouldBe(40);
+            summary.RedemptionCount.ShouldBe(1);
+            summary.WindowsClosed.ShouldBe(1);
         }
     }
 }
