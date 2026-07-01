@@ -5,6 +5,10 @@ using static LoyaltyWalletDecider;
 
 public class DeactivateWalletHandler(GetLoyaltyWallet getLoyaltyWallet, SaveLoyaltyWallet saveLoyaltyWallet)
 {
-    public async ValueTask Handle(DeactivateWallet command) =>
-        await saveLoyaltyWallet(DeactivateWallet(await getLoyaltyWallet(command.WalletNumber)), []);
+    public async ValueTask Handle(DeactivateWallet command)
+    {
+        var (state, events) = DeactivateWallet(await getLoyaltyWallet(command.WalletNumber));
+
+        await saveLoyaltyWallet(state, events);
+    }
 }

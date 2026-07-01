@@ -5,6 +5,10 @@ using static LoyaltyWalletDecider;
 
 public class GrantWalletAccessHandler(GetLoyaltyWallet getLoyaltyWallet, SaveLoyaltyWallet saveLoyaltyWallet)
 {
-    public async ValueTask Handle(GrantWalletAccess command) =>
-        await saveLoyaltyWallet(GrantWalletAccess(command, await getLoyaltyWallet(command.WalletNumber)), []);
+    public async ValueTask Handle(GrantWalletAccess command)
+    {
+        var (state, @event) = GrantWalletAccess(command, await getLoyaltyWallet(command.WalletNumber));
+
+        await saveLoyaltyWallet(state, [@event]);
+    }
 }
