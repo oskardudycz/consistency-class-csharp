@@ -1,7 +1,7 @@
-namespace ConsistencyClass.Tests.LoyaltyWallets.EarningPoints;
+namespace ConsistencyClass.Tests.LoyaltyWallets.RedemptionWindows.EarningPoints;
 
 using ConsistencyClass.LoyaltyWallets;
-using ConsistencyClass.LoyaltyWallets.EarningPoints;
+using ConsistencyClass.LoyaltyWallets.RedemptionWindows.EarningPoints;
 using ConsistencyClass.Membership;
 
 public class PointsCalculatorFixture

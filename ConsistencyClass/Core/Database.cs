@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace ConsistencyClass;
+namespace ConsistencyClass.Core;
 
 public class Database
 {

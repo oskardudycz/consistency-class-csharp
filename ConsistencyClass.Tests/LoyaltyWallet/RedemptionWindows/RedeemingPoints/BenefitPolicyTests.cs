@@ -1,7 +1,7 @@
-namespace ConsistencyClass.Tests.LoyaltyWallets.RedeemingPoints;
+namespace ConsistencyClass.Tests.LoyaltyWallets.RedemptionWindows.RedeemingPoints;
 
 using ConsistencyClass.LoyaltyWallets;
-using ConsistencyClass.LoyaltyWallets.RedeemingPoints;
+using ConsistencyClass.LoyaltyWallets.RedemptionWindows.RedeemingPoints;
 using ConsistencyClass.Membership;
 
 public class BenefitPolicyTests

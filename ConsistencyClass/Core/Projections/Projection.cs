@@ -1,5 +1,7 @@
 namespace ConsistencyClass.Core.Projections;
 
+using ConsistencyClass.Core;
+
 public interface IProjection<in TEvent>
 {
     public ValueTask Apply(IReadOnlyList<TEvent> events);

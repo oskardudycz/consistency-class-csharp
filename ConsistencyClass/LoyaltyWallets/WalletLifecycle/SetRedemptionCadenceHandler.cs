@@ -1,4 +1,4 @@
-namespace ConsistencyClass.LoyaltyWallets.RedeemingPoints;
+namespace ConsistencyClass.LoyaltyWallets.WalletLifecycle;
 
 using static LoyaltyWalletCommand;
 using static LoyaltyWalletDecider;

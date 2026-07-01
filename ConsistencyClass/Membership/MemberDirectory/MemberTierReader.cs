@@ -1,5 +1,7 @@
 namespace ConsistencyClass.Membership.MemberDirectory;
 
+using ConsistencyClass.Core;
+
 public delegate ValueTask<Tier> GetMemberTier(MemberId memberId);
 
 public class MemberTierReader(DatabaseCollection<Member> members)

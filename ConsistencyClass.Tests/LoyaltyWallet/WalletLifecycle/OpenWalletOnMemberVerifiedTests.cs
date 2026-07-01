@@ -19,11 +19,11 @@ public class OpenWalletOnMemberVerifiedTests
             .Handle(new MemberVerified(oskar, Tier.Gold));
 
         // then an active wallet is opened for the member, the window from their tier
-        var wallets = await _store.FindLoyaltyWalletsByOwners([oskar]);
-        var wallet = wallets.ShouldHaveSingleItem().ShouldBeOfType<LoyaltyWallet.Active>();
+        var wallet = (await _store.GetLoyaltyWallet(WalletNumber.ForOwner(oskar))).ShouldBeOfType<LoyaltyWallet.Active>();
         wallet.OwnerId.ShouldBe(oskar);
         wallet.Cadence.ShouldBe(RedemptionCadence.Monthly);
-        wallet.PointsLimit.RedemptionsLeft.ShouldBe(10);
+        wallet.MaxRedemptionCount.ShouldBe(RedemptionLimit.Of(10));
+        wallet.CurrentWindowNumber.ShouldBe(1);
         wallet.Access.Has(oskar).ShouldBeTrue();
     }
 }

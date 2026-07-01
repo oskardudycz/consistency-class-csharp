@@ -1,5 +1,7 @@
 namespace ConsistencyClass.Membership.MemberDirectory;
 
+using ConsistencyClass.Core;
+
 public record MemberVerified(MemberId MemberId, Tier Tier);
 
 public class MemberVerifiedHandler(DatabaseCollection<Member> members)

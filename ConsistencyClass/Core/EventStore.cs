@@ -1,4 +1,4 @@
-namespace ConsistencyClass;
+namespace ConsistencyClass.Core;
 
 using ConsistencyClass.Core.Projections;
 
@@ -12,17 +12,24 @@ internal class EventStore<TEvent>(IReadOnlyList<IProjection<TEvent>> projections
         return stream.EventsOfType<T>();
     }
 
-    public async ValueTask AppendToStream<T>(string streamId, IReadOnlyList<T> events) where T : notnull
+    public async ValueTask AppendToStream<T>(
+        string streamId,
+        IReadOnlyList<T> events,
+        bool requireNew = false) where T : notnull
     {
         if (events.Count == 0)
             return;
 
         var stream = await ExistingEventStreamOrEmpty(streamId);
+        if (requireNew && stream.Events.Count != 0)
+            throw new InvalidOperationException("Stream already exists");
         var version = stream.Events.Count;
         var newEvents = events.Select(e => EventEnvelope.From(streamId, e, ++version)).ToList();
 
         await streams.Save(streamId, stream.Append(newEvents));
-        await Projections.ApplyProjections(projections, newEvents.Select(e => e.Data).OfType<TEvent>().ToList());
+        await ConsistencyClass.Core.Projections.Projections.ApplyProjections(
+            projections,
+            newEvents.Select(e => e.Data).OfType<TEvent>().ToList());
     }
 
     private async ValueTask<EventStream> ExistingEventStreamOrEmpty(string streamId) =>

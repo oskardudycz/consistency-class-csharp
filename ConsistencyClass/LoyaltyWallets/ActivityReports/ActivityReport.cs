@@ -1,8 +1,10 @@
 namespace ConsistencyClass.LoyaltyWallets.ActivityReports;
 
+using ConsistencyClass.Core;
 using ConsistencyClass.Core.Projections;
+using ConsistencyClass.LoyaltyWallets.RedemptionWindows;
 using ConsistencyClass.Membership;
-using static LoyaltyWalletEvent;
+using static ConsistencyClass.LoyaltyWallets.RedemptionWindows.RedemptionWindowEvent;
 
 public enum ActivityKind { Earned, Redeemed }
 
@@ -26,12 +28,16 @@ public record ActivityReport(
     private static WindowActivity EmptyWindow(int windowNumber) =>
         new(windowNumber, 0, 0, 0, 0, false, []);
 
-    public static ActivityReport? Evolve(ActivityReport? document, LoyaltyWalletEvent @event)
+    public static ActivityReport? Evolve(ActivityReport? document, RedemptionWindowEvent @event)
     {
         switch (@event)
         {
-            case LoyaltyWalletOpened opened:
-                return new ActivityReport(opened.WalletNumber, opened.OwnerId, EmptyWindow(1), []);
+            case RedemptionWindowOpened opened:
+                if (document is null)
+                    return new ActivityReport(opened.WalletNumber, opened.OwnerId, EmptyWindow(opened.WindowNumber), []);
+                if (document.CurrentWindow.WindowNumber == opened.WindowNumber)
+                    return document;
+                return document with { CurrentWindow = EmptyWindow(opened.WindowNumber) };
             case LoyaltyPointsEarned earned:
                 {
                     if (document is null)
@@ -66,7 +72,7 @@ public record ActivityReport(
                         }
                     };
                 }
-            case RedemptionWindowReset:
+            case RedemptionWindowClosed:
                 {
                     if (document is null)
                         return document;
@@ -82,27 +88,27 @@ public record ActivityReport(
         }
     }
 
-    public static Projection<ActivityReport, LoyaltyWalletEvent> Projection(
+    public static Projection<ActivityReport, RedemptionWindowEvent> Projection(
         DatabaseCollection<ActivityReport> collection) =>
         new(
             collection,
             new HashSet<Type>
             {
-                typeof(LoyaltyWalletOpened),
+                typeof(RedemptionWindowOpened),
                 typeof(LoyaltyPointsEarned),
                 typeof(LoyaltyPointsRedeemed),
-                typeof(RedemptionWindowReset)
+                typeof(RedemptionWindowClosed)
             },
             WalletNumberOf,
             Evolve);
 
-    private static string WalletNumberOf(LoyaltyWalletEvent @event) =>
+    private static string WalletNumberOf(RedemptionWindowEvent @event) =>
         @event switch
         {
-            LoyaltyWalletOpened e => e.WalletNumber.Value,
+            RedemptionWindowOpened e => e.WalletNumber.Value,
             LoyaltyPointsEarned e => e.WalletNumber.Value,
             LoyaltyPointsRedeemed e => e.WalletNumber.Value,
-            RedemptionWindowReset e => e.WalletNumber.Value,
+            RedemptionWindowClosed e => e.WalletNumber.Value,
             _ => throw new ArgumentOutOfRangeException(nameof(@event))
         };
 }

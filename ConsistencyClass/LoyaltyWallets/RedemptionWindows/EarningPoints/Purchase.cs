@@ -1,4 +1,4 @@
-namespace ConsistencyClass.LoyaltyWallets.EarningPoints;
+namespace ConsistencyClass.LoyaltyWallets.RedemptionWindows.EarningPoints;
 
 using ConsistencyClass.Membership;
 
