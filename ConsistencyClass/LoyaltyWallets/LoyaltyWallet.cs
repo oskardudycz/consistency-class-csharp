@@ -10,6 +10,7 @@ public record WalletNumber(string Value)
 {
     public static WalletNumber Of(string value) => new(value);
     public static WalletNumber Random() => new(Guid.NewGuid().ToString());
+    public static WalletNumber ForOwner(MemberId ownerId) => Of($"wallet-{ownerId.Value}");
 }
 
 public enum RedemptionCadence { Weekly, Monthly }
