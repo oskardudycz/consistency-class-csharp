@@ -5,7 +5,6 @@ using ConsistencyClass.LoyaltyWallets.WalletLifecycle;
 using ConsistencyClass.Membership;
 using ConsistencyClass.Membership.MemberDirectory;
 using static ConsistencyClass.LoyaltyWallets.LoyaltyWalletCommand;
-using WalletDetailsDocument = ConsistencyClass.LoyaltyWallets.WalletDetails.WalletDetails;
 
 namespace ConsistencyClass.Tests.LoyaltyWallets.RedeemingPoints;
 
@@ -16,7 +15,7 @@ public class RedeemLoyaltyPointsTests
     private static readonly DateTime At = new(2026, 6, 23, 12, 0, 0, DateTimeKind.Utc);
 
     private readonly DatabaseCollection<Member> _members = Database.Collection<Member>();
-    private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDetailsDocument>());
+    private readonly LoyaltyWalletStore _store = LoyaltyWalletStoreFixture.CreateStore();
     private readonly MemberTierReader _tierReader;
     private readonly RedeemLoyaltyPointsHandler _redeemHandler;
 

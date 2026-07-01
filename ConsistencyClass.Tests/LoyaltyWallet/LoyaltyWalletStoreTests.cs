@@ -2,16 +2,12 @@ using ConsistencyClass.LoyaltyWallets;
 using ConsistencyClass.Membership;
 using static ConsistencyClass.LoyaltyWallets.LoyaltyWalletCommand;
 using static ConsistencyClass.LoyaltyWallets.LoyaltyWalletDecider;
-using WalletDetailsDocument = ConsistencyClass.LoyaltyWallets.WalletDetails.WalletDetails;
 
 namespace ConsistencyClass.Tests.LoyaltyWallets;
 
 public class LoyaltyWalletStoreTests
 {
-    private readonly DatabaseCollection<WalletDetailsDocument> _wallets = Database.Collection<WalletDetailsDocument>();
-    private readonly LoyaltyWalletStore _store;
-
-    public LoyaltyWalletStoreTests() => _store = new LoyaltyWalletStore(_wallets);
+    private readonly LoyaltyWalletStore _store = LoyaltyWalletStoreFixture.CreateStore();
 
     private static LoyaltyWallet.Active ActiveWallet(MemberId ownerId) =>
         LoyaltyWallet.Open(WalletNumber.Random(), ownerId, RedemptionCadence.Monthly, RedemptionLimit.Of(10));
@@ -45,10 +41,7 @@ public class LoyaltyWalletStoreTests
 
     public class FindLoyaltyWalletsByOwners
     {
-        private readonly DatabaseCollection<WalletDetailsDocument> _wallets = Database.Collection<WalletDetailsDocument>();
-        private readonly LoyaltyWalletStore _store;
-
-        public FindLoyaltyWalletsByOwners() => _store = new LoyaltyWalletStore(_wallets);
+        private readonly LoyaltyWalletStore _store = LoyaltyWalletStoreFixture.CreateStore();
 
         private async Task<LoyaltyWallet.Active> Enroll(MemberId ownerId)
         {
@@ -98,10 +91,7 @@ public class LoyaltyWalletStoreTests
 
     public class SaveLoyaltyWallets
     {
-        private readonly DatabaseCollection<WalletDetailsDocument> _wallets = Database.Collection<WalletDetailsDocument>();
-        private readonly LoyaltyWalletStore _store;
-
-        public SaveLoyaltyWallets() => _store = new LoyaltyWalletStore(_wallets);
+        private readonly LoyaltyWalletStore _store = LoyaltyWalletStoreFixture.CreateStore();
 
         private async Task<LoyaltyWallet.Active> Enroll(MemberId ownerId)
         {
@@ -146,7 +136,7 @@ public class LoyaltyWalletStoreTests
     {
         private static readonly DateTime At = new(2026, 6, 23, 12, 0, 0, DateTimeKind.Utc);
 
-        private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDetailsDocument>());
+        private readonly LoyaltyWalletStore _store = LoyaltyWalletStoreFixture.CreateStore();
 
         [Fact]
         public async Task WritesTheActivityReportAndMonthlySummaryAlongsideTheWallet()

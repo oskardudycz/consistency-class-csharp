@@ -15,17 +15,18 @@ public delegate ValueTask SaveLoyaltyWallets(IReadOnlyList<LoyaltyWalletUpdate> 
 
 internal class LoyaltyWalletStore
 {
-    private readonly IReadOnlyList<IProjection<LoyaltyWalletEvent>> projections;
+    private readonly EventStore<LoyaltyWalletEvent> eventStore;
 
     public LoyaltyWalletStore(DatabaseCollection<WalletDetailsDocument> wallets)
     {
         Wallets = wallets;
-        projections =
+        IReadOnlyList<IProjection<LoyaltyWalletEvent>> projections =
         [
             ActivityReport.Projection(ActivityReports),
             MonthlySummary.Projection(MonthlySummaries),
             WalletDetailsDocument.Projection(Wallets)
         ];
+        eventStore = new EventStore<LoyaltyWalletEvent>(projections);
     }
 
     internal DatabaseCollection<WalletDetailsDocument> Wallets { get; }
@@ -34,8 +35,10 @@ internal class LoyaltyWalletStore
 
     public async ValueTask<LoyaltyWallet> GetLoyaltyWallet(WalletNumber walletNumber)
     {
-        var doc = await Wallets.Find(walletNumber.Value);
-        return doc is not null ? WalletDetailsDocument.ToWallet(doc) : LoyaltyWallet.Initial();
+        var events = await eventStore.ReadEvents<LoyaltyWalletEvent>(walletNumber.Value);
+        return events.Aggregate(
+            (LoyaltyWallet)LoyaltyWallet.Initial(),
+            (wallet, @event) => LoyaltyWalletDecider.Evolve(wallet, @event));
     }
 
     public async ValueTask<IReadOnlyList<LoyaltyWallet>> FindLoyaltyWalletsByOwners(IReadOnlyList<MemberId> ownerIds)
@@ -50,7 +53,10 @@ internal class LoyaltyWalletStore
 
     public async ValueTask SaveLoyaltyWallet(WalletNumber walletNumber, IReadOnlyList<LoyaltyWalletEvent> events)
     {
-        await Projections.ApplyProjections(projections, events);
+        if (events.Count == 0)
+            return;
+
+        await eventStore.AppendToStream(walletNumber.Value, events);
     }
 
     public async ValueTask SaveLoyaltyWallets(IReadOnlyList<LoyaltyWalletUpdate> updates)
