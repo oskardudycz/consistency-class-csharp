@@ -1,0 +1,387 @@
+using ConsistencyClass.LoyaltyWallets;
+using static ConsistencyClass.LoyaltyWallets.LoyaltyWalletCommand;
+using static ConsistencyClass.LoyaltyWallets.LoyaltyWalletDecider;
+
+namespace ConsistencyClass.Tests.LoyaltyWallets;
+
+public class LoyaltyWalletFixture
+{
+    public readonly WalletNumber WalletNumber = WalletNumber.Random();
+
+    public LoyaltyWallet.Active OpenWallet() =>
+        (LoyaltyWallet.Active)OpenLoyaltyWallet(
+            new OpenLoyaltyWallet(WalletNumber, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
+            LoyaltyWallet.Initial());
+
+    public LoyaltyWallet.Active WalletWithPoints(int points) =>
+        (LoyaltyWallet.Active)EarnLoyaltyPoints(
+            new EarnLoyaltyPoints(WalletNumber, LoyaltyPoints.Of(points)),
+            OpenWallet());
+}
+
+public class LoyaltyWalletTests
+{
+    public class Opening(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
+    {
+        [Fact]
+        public void OpensNotExistingWallet()
+        {
+            var newState = OpenLoyaltyWallet(
+                new OpenLoyaltyWallet(fixture.WalletNumber, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
+                LoyaltyWallet.Initial());
+
+            newState.ShouldBe(new LoyaltyWallet.Active(
+                fixture.WalletNumber,
+                LoyaltyPointsLimit.Initial(RedemptionLimit.Of(5)),
+                RedemptionCadence.Weekly));
+        }
+
+        [Fact]
+        public void LeavesAlreadyActiveWalletUnchanged()
+        {
+            var activeWallet = fixture.OpenWallet();
+
+            var newState = OpenLoyaltyWallet(
+                new OpenLoyaltyWallet(fixture.WalletNumber, RedemptionLimit.Of(3), RedemptionCadence.Monthly),
+                activeWallet);
+
+            newState.ShouldBeSameAs(activeWallet);
+        }
+
+        [Fact]
+        public void LeavesDeactivatedWalletUnchanged()
+        {
+            var deactivatedWallet = DeactivateWallet(fixture.OpenWallet());
+
+            var newState = OpenLoyaltyWallet(
+                new OpenLoyaltyWallet(fixture.WalletNumber, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
+                deactivatedWallet);
+
+            newState.ShouldBeSameAs(deactivatedWallet);
+        }
+
+        [Fact]
+        public void LeavesClosedWalletUnchanged()
+        {
+            var closedWallet = CloseWallet(fixture.OpenWallet());
+
+            var newState = OpenLoyaltyWallet(
+                new OpenLoyaltyWallet(fixture.WalletNumber, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
+                closedWallet);
+
+            newState.ShouldBeSameAs(closedWallet);
+        }
+    }
+
+    public class EarningPoints(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
+    {
+        [Fact]
+        public void EarnsPointsOnActiveWallet()
+        {
+            var wallet = fixture.OpenWallet();
+
+            var newState = EarnLoyaltyPoints(
+                new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+                wallet);
+
+            newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Earn(LoyaltyPoints.Of(100)) });
+        }
+
+        [Fact]
+        public void CannotEarnOnNotExistingWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    EarnLoyaltyPoints(
+                        new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+                        LoyaltyWallet.Initial()))
+                .Message.ShouldBe("Wallet doesn't exist");
+        }
+
+        [Fact]
+        public void CannotEarnOnDeactivatedWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    EarnLoyaltyPoints(
+                        new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+                        DeactivateWallet(fixture.OpenWallet())))
+                .Message.ShouldBe("Wallet is not active");
+        }
+
+        [Fact]
+        public void CannotEarnOnClosedWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    EarnLoyaltyPoints(
+                        new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+                        CloseWallet(fixture.OpenWallet())))
+                .Message.ShouldBe("Wallet is closed");
+        }
+    }
+
+    public class RedeemingPoints(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
+    {
+        [Fact]
+        public void RedeemsPointsOnActiveWallet()
+        {
+            var wallet = fixture.WalletWithPoints(100);
+
+            var newState = RedeemLoyaltyPoints(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(40)),
+                wallet);
+
+            newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Redeem(LoyaltyPoints.Of(40)) });
+        }
+
+        [Fact]
+        public void CannotRedeemMoreThanAvailable()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    RedeemLoyaltyPoints(
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(50)),
+                        fixture.WalletWithPoints(20)))
+                .Message.ShouldBe("Not enough points to redeem");
+        }
+
+        [Fact]
+        public void CannotRedeemOnNotExistingWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    RedeemLoyaltyPoints(
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(40)),
+                        LoyaltyWallet.Initial()))
+                .Message.ShouldBe("Wallet doesn't exist");
+        }
+
+        [Fact]
+        public void CannotRedeemOnDeactivatedWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    RedeemLoyaltyPoints(
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(40)),
+                        DeactivateWallet(fixture.OpenWallet())))
+                .Message.ShouldBe("Wallet is not active");
+        }
+
+        [Fact]
+        public void CannotRedeemOnClosedWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    RedeemLoyaltyPoints(
+                        new RedeemLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(40)),
+                        CloseWallet(fixture.OpenWallet())))
+                .Message.ShouldBe("Wallet is closed");
+        }
+    }
+
+    public class SettingRedemptionCadence(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
+    {
+        [Fact]
+        public void ChangesCadenceOnActiveWallet()
+        {
+            var opened = fixture.OpenWallet();
+
+            var newState = SetRedemptionCadence(
+                new SetRedemptionCadence(fixture.WalletNumber, RedemptionCadence.Monthly),
+                opened);
+
+            newState.ShouldBe(opened with { Cadence = RedemptionCadence.Monthly });
+        }
+
+        [Fact]
+        public void CannotSetCadenceOnNotExistingWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    SetRedemptionCadence(
+                        new SetRedemptionCadence(fixture.WalletNumber, RedemptionCadence.Monthly),
+                        LoyaltyWallet.Initial()))
+                .Message.ShouldBe("Wallet doesn't exist");
+        }
+    }
+
+    public class ResettingRedemptionWindow(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
+    {
+        [Fact]
+        public void ResetsRedemptionCountKeepingBalance()
+        {
+            var walletAfterRedeem = RedeemLoyaltyPoints(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(10)),
+                fixture.WalletWithPoints(100));
+
+            var newState = ResetRedemptionWindow(walletAfterRedeem);
+
+            newState.ShouldBe(walletAfterRedeem with
+            {
+                PointsLimit = walletAfterRedeem.PointsLimit.ResetRedemptionCount()
+            });
+        }
+
+        [Fact]
+        public void CannotResetWindowIfWalletNotActive()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    ResetRedemptionWindow(DeactivateWallet(fixture.OpenWallet())))
+                .Message.ShouldBe("Wallet is not active");
+        }
+    }
+
+    public class Deactivating(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
+    {
+        [Fact]
+        public void DeactivatesActiveWalletKeepingData()
+        {
+            var walletAfterRedeem = RedeemLoyaltyPoints(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(10)),
+                fixture.WalletWithPoints(100));
+
+            var newState = DeactivateWallet(walletAfterRedeem);
+
+            newState.ShouldBe(new LoyaltyWallet.Deactivated(
+                walletAfterRedeem.WalletNumber,
+                walletAfterRedeem.PointsLimit,
+                walletAfterRedeem.Cadence));
+        }
+
+        [Fact]
+        public void LeavesAlreadyDeactivatedWalletUnchanged()
+        {
+            var deactivated = DeactivateWallet(fixture.OpenWallet());
+
+            var newState = DeactivateWallet(deactivated);
+
+            newState.ShouldBeSameAs(deactivated);
+        }
+
+        [Fact]
+        public void CannotDeactivateNotExistingWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    DeactivateWallet(LoyaltyWallet.Initial()))
+                .Message.ShouldBe("Wallet doesn't exist");
+        }
+
+        [Fact]
+        public void CannotDeactivateClosedWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    DeactivateWallet(CloseWallet(fixture.OpenWallet())))
+                .Message.ShouldBe("Wallet is closed");
+        }
+    }
+
+    public class Closing(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
+    {
+        [Fact]
+        public void ClosesActiveWallet()
+        {
+            CloseWallet(fixture.OpenWallet()).ShouldBeOfType<LoyaltyWallet.Closed>();
+        }
+
+        [Fact]
+        public void ClosesDeactivatedWallet()
+        {
+            CloseWallet(DeactivateWallet(fixture.OpenWallet())).ShouldBeOfType<LoyaltyWallet.Closed>();
+        }
+
+        [Fact]
+        public void LeavesAlreadyClosedWalletUnchanged()
+        {
+            var closed = CloseWallet(fixture.OpenWallet());
+
+            CloseWallet(closed).ShouldBeSameAs(closed);
+        }
+
+        [Fact]
+        public void CannotCloseNotExistingWallet()
+        {
+            Should.Throw<InvalidOperationException>(() =>
+                    CloseWallet(LoyaltyWallet.Initial()))
+                .Message.ShouldBe("Wallet doesn't exist");
+        }
+    }
+
+    public class DecideRouting(LoyaltyWalletFixture fixture): IClassFixture<LoyaltyWalletFixture>
+    {
+        [Fact]
+        public void RoutesOpenLoyaltyWallet()
+        {
+            var newState = Decide(
+                new OpenLoyaltyWallet(fixture.WalletNumber, RedemptionLimit.Of(5), RedemptionCadence.Weekly),
+                LoyaltyWallet.Initial());
+
+            newState.ShouldBe(new LoyaltyWallet.Active(
+                fixture.WalletNumber,
+                LoyaltyPointsLimit.Initial(RedemptionLimit.Of(5)),
+                RedemptionCadence.Weekly));
+        }
+
+        [Fact]
+        public void RoutesEarnLoyaltyPoints()
+        {
+            var wallet = fixture.OpenWallet();
+
+            var newState = Decide(
+                new EarnLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(100)),
+                wallet);
+
+            newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Earn(LoyaltyPoints.Of(100)) });
+        }
+
+        [Fact]
+        public void RoutesRedeemLoyaltyPoints()
+        {
+            var wallet = fixture.WalletWithPoints(100);
+
+            var newState = Decide(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(40)),
+                wallet);
+
+            newState.ShouldBe(wallet with { PointsLimit = wallet.PointsLimit.Redeem(LoyaltyPoints.Of(40)) });
+        }
+
+        [Fact]
+        public void RoutesSetRedemptionCadence()
+        {
+            var opened = fixture.OpenWallet();
+
+            var newState = Decide(
+                new SetRedemptionCadence(fixture.WalletNumber, RedemptionCadence.Monthly),
+                opened);
+
+            newState.ShouldBe(opened with { Cadence = RedemptionCadence.Monthly });
+        }
+
+        [Fact]
+        public void RoutesResetRedemptionWindow()
+        {
+            var walletAfterRedeem = RedeemLoyaltyPoints(
+                new RedeemLoyaltyPoints(fixture.WalletNumber, LoyaltyPoints.Of(10)),
+                fixture.WalletWithPoints(100));
+
+            var newState = Decide(new ResetRedemptionWindow(fixture.WalletNumber), walletAfterRedeem);
+
+            newState.ShouldBe(walletAfterRedeem with
+            {
+                PointsLimit = walletAfterRedeem.PointsLimit.ResetRedemptionCount()
+            });
+        }
+
+        [Fact]
+        public void RoutesDeactivateWallet()
+        {
+            var wallet = fixture.OpenWallet();
+
+            Decide(new DeactivateWallet(fixture.WalletNumber), wallet)
+                .ShouldBe(new LoyaltyWallet.Deactivated(
+                    wallet.WalletNumber,
+                    wallet.PointsLimit,
+                    wallet.Cadence));
+        }
+
+        [Fact]
+        public void RoutesCloseWallet()
+        {
+            Decide(new CloseWallet(fixture.WalletNumber), fixture.OpenWallet())
+                .ShouldBeOfType<LoyaltyWallet.Closed>();
+        }
+    }
+}
