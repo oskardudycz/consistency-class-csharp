@@ -2,12 +2,13 @@ using ConsistencyClass.LoyaltyWallets;
 using ConsistencyClass.LoyaltyWallets.WalletLifecycle;
 using ConsistencyClass.Membership;
 using ConsistencyClass.Membership.MemberDirectory;
+using WalletDetailsDocument = ConsistencyClass.LoyaltyWallets.WalletDetails.WalletDetails;
 
 namespace ConsistencyClass.Tests.LoyaltyWallets.WalletLifecycle;
 
 public class OpenWalletOnMemberVerifiedTests
 {
-    private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDocument>());
+    private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDetailsDocument>());
 
     [Fact]
     public async Task OpensAnActiveWalletWithTheWindowDerivedFromTheTier()

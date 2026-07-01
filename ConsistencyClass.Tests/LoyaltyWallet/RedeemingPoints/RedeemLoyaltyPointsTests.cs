@@ -5,6 +5,7 @@ using ConsistencyClass.LoyaltyWallets.WalletLifecycle;
 using ConsistencyClass.Membership;
 using ConsistencyClass.Membership.MemberDirectory;
 using static ConsistencyClass.LoyaltyWallets.LoyaltyWalletCommand;
+using WalletDetailsDocument = ConsistencyClass.LoyaltyWallets.WalletDetails.WalletDetails;
 
 namespace ConsistencyClass.Tests.LoyaltyWallets.RedeemingPoints;
 
@@ -15,7 +16,7 @@ public class RedeemLoyaltyPointsTests
     private static readonly DateTime At = new(2026, 6, 23, 12, 0, 0, DateTimeKind.Utc);
 
     private readonly DatabaseCollection<Member> _members = Database.Collection<Member>();
-    private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDocument>());
+    private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDetailsDocument>());
     private readonly MemberTierReader _tierReader;
     private readonly RedeemLoyaltyPointsHandler _redeemHandler;
 
@@ -44,9 +45,9 @@ public class RedeemLoyaltyPointsTests
     private async Task Earn(WalletNumber walletNumber, int points)
     {
         var wallet = await _store.GetLoyaltyWallet(walletNumber);
-        var (state, earned) = LoyaltyWalletDecider.EarnLoyaltyPoints(
+        var earned = LoyaltyWalletDecider.EarnLoyaltyPoints(
             new EarnLoyaltyPoints(walletNumber, LoyaltyPoints.Of(points), At), wallet);
-        await _store.SaveLoyaltyWallet(state, [earned]);
+        await _store.SaveLoyaltyWallet(walletNumber, [earned]);
     }
 
     private Task Redeem(WalletNumber walletNumber, MemberId memberId, int points) =>

@@ -7,8 +7,8 @@ public class RevokeWalletAccessHandler(GetLoyaltyWallet getLoyaltyWallet, SaveLo
 {
     public async ValueTask Handle(RevokeWalletAccess command)
     {
-        var (state, @event) = RevokeWalletAccess(command, await getLoyaltyWallet(command.WalletNumber));
+        var @event = RevokeWalletAccess(command, await getLoyaltyWallet(command.WalletNumber));
 
-        await saveLoyaltyWallet(state, [@event]);
+        await saveLoyaltyWallet(command.WalletNumber, [@event]);
     }
 }

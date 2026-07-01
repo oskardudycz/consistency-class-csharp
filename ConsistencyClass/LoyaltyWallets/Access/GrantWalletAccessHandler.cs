@@ -7,8 +7,8 @@ public class GrantWalletAccessHandler(GetLoyaltyWallet getLoyaltyWallet, SaveLoy
 {
     public async ValueTask Handle(GrantWalletAccess command)
     {
-        var (state, @event) = GrantWalletAccess(command, await getLoyaltyWallet(command.WalletNumber));
+        var @event = GrantWalletAccess(command, await getLoyaltyWallet(command.WalletNumber));
 
-        await saveLoyaltyWallet(state, [@event]);
+        await saveLoyaltyWallet(command.WalletNumber, [@event]);
     }
 }

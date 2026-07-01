@@ -1,122 +1,61 @@
 namespace ConsistencyClass.LoyaltyWallets;
 
 using ConsistencyClass.Core.Projections;
-using ConsistencyClass.LoyaltyWallets.Access;
 using ConsistencyClass.LoyaltyWallets.ActivityReports;
 using ConsistencyClass.LoyaltyWallets.MonthlySummaries;
 using ConsistencyClass.Membership;
+using WalletDetailsDocument = ConsistencyClass.LoyaltyWallets.WalletDetails.WalletDetails;
 
 public delegate ValueTask<LoyaltyWallet> GetLoyaltyWallet(WalletNumber walletNumber);
 public delegate ValueTask<IReadOnlyList<LoyaltyWallet>> FindLoyaltyWalletsByOwners(IReadOnlyList<MemberId> ownerIds);
-public delegate ValueTask SaveLoyaltyWallet(LoyaltyWallet wallet, IReadOnlyList<LoyaltyWalletEvent> events);
+public delegate ValueTask SaveLoyaltyWallet(WalletNumber walletNumber, IReadOnlyList<LoyaltyWalletEvent> events);
 
-public record LoyaltyWalletUpdate(LoyaltyWallet State, IReadOnlyList<LoyaltyWalletEvent> Events);
+public record LoyaltyWalletUpdate(WalletNumber WalletNumber, IReadOnlyList<LoyaltyWalletEvent> Events);
 public delegate ValueTask SaveLoyaltyWallets(IReadOnlyList<LoyaltyWalletUpdate> updates);
-
-internal abstract record WalletDocument
-{
-    private WalletDocument() { }
-
-    internal sealed record ActiveOrDeactivated(
-        WalletNumber WalletNumber,
-        string Status,
-        MemberId OwnerId,
-        RedemptionCadence Cadence,
-        int EarnedPoints,
-        int RedeemedPoints,
-        int RedemptionCount,
-        int MaxRedemptionCount,
-        IReadOnlyList<MemberId> AccessMembers): WalletDocument;
-
-    internal sealed record Closed(WalletNumber WalletNumber): WalletDocument;
-}
 
 internal class LoyaltyWalletStore
 {
-    private readonly DatabaseCollection<WalletDocument> wallets;
     private readonly IReadOnlyList<IProjection<LoyaltyWalletEvent>> projections;
 
-    public LoyaltyWalletStore(DatabaseCollection<WalletDocument> wallets)
+    public LoyaltyWalletStore(DatabaseCollection<WalletDetailsDocument> wallets)
     {
-        this.wallets = wallets;
+        Wallets = wallets;
         projections =
         [
             ActivityReport.Projection(ActivityReports),
-            MonthlySummary.Projection(MonthlySummaries)
+            MonthlySummary.Projection(MonthlySummaries),
+            WalletDetailsDocument.Projection(Wallets)
         ];
     }
 
+    internal DatabaseCollection<WalletDetailsDocument> Wallets { get; }
     internal DatabaseCollection<ActivityReport> ActivityReports { get; } = Database.Collection<ActivityReport>();
     internal DatabaseCollection<MonthlySummary> MonthlySummaries { get; } = Database.Collection<MonthlySummary>();
 
     public async ValueTask<LoyaltyWallet> GetLoyaltyWallet(WalletNumber walletNumber)
     {
-        var doc = await wallets.Find(walletNumber.Value);
-        return doc is not null ? FromDocument(doc) : LoyaltyWallet.Initial();
+        var doc = await Wallets.Find(walletNumber.Value);
+        return doc is not null ? WalletDetailsDocument.ToWallet(doc) : LoyaltyWallet.Initial();
     }
 
     public async ValueTask<IReadOnlyList<LoyaltyWallet>> FindLoyaltyWalletsByOwners(IReadOnlyList<MemberId> ownerIds)
     {
         var ownerSet = ownerIds.Select(id => id.Value).ToHashSet();
-        var all = await wallets.GetAll();
+        var all = await Wallets.GetAll();
         return all
-            .OfType<WalletDocument.ActiveOrDeactivated>()
             .Where(d => ownerSet.Contains(d.OwnerId.Value))
-            .Select(d => (LoyaltyWallet)FromDocument(d))
+            .Select(WalletDetailsDocument.ToWallet)
             .ToList();
     }
 
-    public async ValueTask SaveLoyaltyWallet(LoyaltyWallet wallet, IReadOnlyList<LoyaltyWalletEvent> events)
+    public async ValueTask SaveLoyaltyWallet(WalletNumber walletNumber, IReadOnlyList<LoyaltyWalletEvent> events)
     {
-        var (key, doc) = ToDocument(wallet);
-        await wallets.Save(key, doc);
         await Projections.ApplyProjections(projections, events);
     }
 
     public async ValueTask SaveLoyaltyWallets(IReadOnlyList<LoyaltyWalletUpdate> updates)
     {
         foreach (var update in updates)
-            await SaveLoyaltyWallet(update.State, update.Events);
+            await SaveLoyaltyWallet(update.WalletNumber, update.Events);
     }
-
-    private static (string Key, WalletDocument Doc) ToDocument(LoyaltyWallet wallet) =>
-        wallet switch
-        {
-            LoyaltyWallet.Active w => (w.WalletNumber.Value, new WalletDocument.ActiveOrDeactivated(
-                w.WalletNumber, "Active", w.OwnerId, w.Cadence,
-                w.PointsLimit.EarnedPoints.Value, w.PointsLimit.RedeemedPoints.Value,
-                w.PointsLimit.RedemptionCount.Value, w.PointsLimit.MaxRedemptionCount.Value,
-                [.. w.Access.Members])),
-            LoyaltyWallet.Deactivated w => (w.WalletNumber.Value, new WalletDocument.ActiveOrDeactivated(
-                w.WalletNumber, "Deactivated", w.OwnerId, w.Cadence,
-                w.PointsLimit.EarnedPoints.Value, w.PointsLimit.RedeemedPoints.Value,
-                w.PointsLimit.RedemptionCount.Value, w.PointsLimit.MaxRedemptionCount.Value,
-                [.. w.Access.Members])),
-            LoyaltyWallet.Closed w => (w.WalletNumber.Value, new WalletDocument.Closed(w.WalletNumber)),
-            LoyaltyWallet.NotExisting => throw new InvalidOperationException("Cannot persist a non-existing wallet"),
-            _ => throw new ArgumentOutOfRangeException(nameof(wallet))
-        };
-
-    private static LoyaltyWallet FromDocument(WalletDocument doc) =>
-        doc switch
-        {
-            WalletDocument.ActiveOrDeactivated d =>
-                d.Status == "Active"
-                    ? new LoyaltyWallet.Active(
-                        d.WalletNumber, d.OwnerId,
-                        LoyaltyPointsLimit.Of(
-                            LoyaltyPoints.Of(d.EarnedPoints), LoyaltyPoints.Of(d.RedeemedPoints),
-                            RedemptionLimit.Of(d.RedemptionCount), RedemptionLimit.Of(d.MaxRedemptionCount)),
-                        d.Cadence,
-                        WalletAccess.Of([.. d.AccessMembers]))
-                    : new LoyaltyWallet.Deactivated(
-                        d.WalletNumber, d.OwnerId,
-                        LoyaltyPointsLimit.Of(
-                            LoyaltyPoints.Of(d.EarnedPoints), LoyaltyPoints.Of(d.RedeemedPoints),
-                            RedemptionLimit.Of(d.RedemptionCount), RedemptionLimit.Of(d.MaxRedemptionCount)),
-                        d.Cadence,
-                        WalletAccess.Of([.. d.AccessMembers])),
-            WalletDocument.Closed d => new LoyaltyWallet.Closed(d.WalletNumber),
-            _ => throw new ArgumentOutOfRangeException(nameof(doc))
-        };
 }

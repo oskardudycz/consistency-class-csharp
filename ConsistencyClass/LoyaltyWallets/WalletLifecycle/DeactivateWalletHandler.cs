@@ -7,8 +7,8 @@ public class DeactivateWalletHandler(GetLoyaltyWallet getLoyaltyWallet, SaveLoya
 {
     public async ValueTask Handle(DeactivateWallet command)
     {
-        var (state, events) = DeactivateWallet(await getLoyaltyWallet(command.WalletNumber));
+        var events = DeactivateWallet(await getLoyaltyWallet(command.WalletNumber));
 
-        await saveLoyaltyWallet(state, events);
+        await saveLoyaltyWallet(command.WalletNumber, events);
     }
 }

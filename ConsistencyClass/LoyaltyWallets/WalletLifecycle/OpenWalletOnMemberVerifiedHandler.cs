@@ -11,9 +11,9 @@ public class OpenWalletOnMemberVerifiedHandler(SaveLoyaltyWallet saveLoyaltyWall
     {
         var tierProgram = TierPrograms.For(@event.Tier);
         var walletNumber = WalletNumber.ForOwner(@event.MemberId);
-        var (state, events) = OpenLoyaltyWallet(
+        var events = OpenLoyaltyWallet(
             new OpenLoyaltyWallet(walletNumber, @event.MemberId, tierProgram.MaxRedemptionCount, tierProgram.Cadence),
             LoyaltyWallet.Initial());
-        await saveLoyaltyWallet(state, events);
+        await saveLoyaltyWallet(walletNumber, events);
     }
 }

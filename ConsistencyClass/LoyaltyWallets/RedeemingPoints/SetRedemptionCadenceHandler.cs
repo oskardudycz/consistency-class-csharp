@@ -7,8 +7,8 @@ public class SetRedemptionCadenceHandler(GetLoyaltyWallet getLoyaltyWallet, Save
 {
     public async ValueTask Handle(SetRedemptionCadence command)
     {
-        var (state, @event) = SetRedemptionCadence(command, await getLoyaltyWallet(command.WalletNumber));
+        var @event = SetRedemptionCadence(command, await getLoyaltyWallet(command.WalletNumber));
 
-        await saveLoyaltyWallet(state, [@event]);
+        await saveLoyaltyWallet(command.WalletNumber, [@event]);
     }
 }

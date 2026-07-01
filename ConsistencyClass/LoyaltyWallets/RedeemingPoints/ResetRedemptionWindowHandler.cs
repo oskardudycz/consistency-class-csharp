@@ -7,7 +7,7 @@ public class ResetRedemptionWindowHandler(GetLoyaltyWallet getLoyaltyWallet, Sav
 {
     public async ValueTask Handle(ResetRedemptionWindow command)
     {
-        var (state, @event) = ResetRedemptionWindow(command, await getLoyaltyWallet(command.WalletNumber));
-        await saveLoyaltyWallet(state, [@event]);
+        var @event = ResetRedemptionWindow(command, await getLoyaltyWallet(command.WalletNumber));
+        await saveLoyaltyWallet(command.WalletNumber, [@event]);
     }
 }

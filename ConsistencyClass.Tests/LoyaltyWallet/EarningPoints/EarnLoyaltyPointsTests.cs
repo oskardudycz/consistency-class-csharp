@@ -3,6 +3,7 @@ using ConsistencyClass.LoyaltyWallets.EarningPoints;
 using ConsistencyClass.LoyaltyWallets.WalletLifecycle;
 using ConsistencyClass.Membership;
 using ConsistencyClass.Membership.MemberDirectory;
+using WalletDetailsDocument = ConsistencyClass.LoyaltyWallets.WalletDetails.WalletDetails;
 
 namespace ConsistencyClass.Tests.LoyaltyWallets.EarningPoints;
 
@@ -13,7 +14,7 @@ public class EarnLoyaltyPointsTests
     private static readonly MemberId Operator = MemberId.Random();
 
     private readonly DatabaseCollection<Member> _members = Database.Collection<Member>();
-    private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDocument>());
+    private readonly LoyaltyWalletStore _store = new(Database.Collection<WalletDetailsDocument>());
     private readonly MemberTierReader _tierReader;
     private readonly EarnLoyaltyPointsHandler _earnHandler;
 

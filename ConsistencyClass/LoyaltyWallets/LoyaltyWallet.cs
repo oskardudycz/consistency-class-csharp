@@ -147,7 +147,54 @@ public abstract record LoyaltyWalletCommand
 
 public static class LoyaltyWalletDecider
 {
-    public static (LoyaltyWallet State, LoyaltyWalletEvent[] Events) Decide(
+    public static LoyaltyWallet Evolve(LoyaltyWallet state, LoyaltyWalletEvent @event) =>
+        @event switch
+        {
+            LoyaltyWalletEvent.LoyaltyWalletOpened e when state is NotExisting =>
+                new Active(
+                    e.WalletNumber,
+                    e.OwnerId,
+                    LoyaltyPointsLimit.Of(
+                        e.EarnedPoints,
+                        e.RedeemedPoints,
+                        RedemptionLimit.Zero,
+                        e.MaxRedemptionCount),
+                    e.Cadence,
+                    WalletAccess.Of(e.OwnerId)),
+            LoyaltyWalletEvent.LoyaltyPointsEarned e when state is Active wallet =>
+                wallet with { PointsLimit = wallet.PointsLimit.Earn(e.Points) },
+            LoyaltyWalletEvent.LoyaltyPointsRedeemed e when state is Active wallet =>
+                wallet with { PointsLimit = wallet.PointsLimit.Redeem(e.Burned) },
+            LoyaltyWalletEvent.RedemptionWindowReset when state is Active wallet =>
+                wallet with { PointsLimit = wallet.PointsLimit.ResetRedemptionCount() },
+            LoyaltyWalletEvent.RedemptionCadenceSet e when state is not NotExisting and not Closed =>
+                state switch
+                {
+                    Active wallet => wallet with { Cadence = e.Cadence },
+                    Deactivated wallet => wallet with { Cadence = e.Cadence },
+                    _ => state
+                },
+            LoyaltyWalletEvent.WalletAccessGranted e when state is not NotExisting and not Closed =>
+                state switch
+                {
+                    Active wallet => wallet with { Access = wallet.Access.Add(e.MemberId) },
+                    Deactivated wallet => wallet with { Access = wallet.Access.Add(e.MemberId) },
+                    _ => state
+                },
+            LoyaltyWalletEvent.WalletAccessRevoked e when state is not NotExisting and not Closed =>
+                state switch
+                {
+                    Active wallet => wallet with { Access = wallet.Access.Revoke(e.MemberId) },
+                    Deactivated wallet => wallet with { Access = wallet.Access.Revoke(e.MemberId) },
+                    _ => state
+                },
+            LoyaltyWalletEvent.WalletDeactivated when state is Active wallet =>
+                new Deactivated(wallet.WalletNumber, wallet.OwnerId, wallet.PointsLimit, wallet.Cadence, wallet.Access),
+            LoyaltyWalletEvent.WalletClosed e => new Closed(e.WalletNumber),
+            _ => state
+        };
+
+    public static IReadOnlyList<LoyaltyWalletEvent> Decide(
         LoyaltyWalletCommand command, LoyaltyWallet state)
     {
         switch (command)
@@ -155,35 +202,17 @@ public static class LoyaltyWalletDecider
             case OpenLoyaltyWallet cmd:
                 return OpenLoyaltyWallet(cmd, state);
             case EarnLoyaltyPoints cmd:
-                {
-                    var (s, e) = EarnLoyaltyPoints(cmd, state);
-                    return (s, [e]);
-                }
+                return [EarnLoyaltyPoints(cmd, state)];
             case RedeemLoyaltyPoints cmd:
-                {
-                    var (s, e) = RedeemLoyaltyPoints(cmd, state);
-                    return (s, [e]);
-                }
+                return [RedeemLoyaltyPoints(cmd, state)];
             case SetRedemptionCadence cmd:
-                {
-                    var (s, e) = SetRedemptionCadence(cmd, state);
-                    return (s, [e]);
-                }
+                return [SetRedemptionCadence(cmd, state)];
             case GrantWalletAccess cmd:
-                {
-                    var (s, e) = GrantWalletAccess(cmd, state);
-                    return (s, [e]);
-                }
+                return [GrantWalletAccess(cmd, state)];
             case RevokeWalletAccess cmd:
-                {
-                    var (s, e) = RevokeWalletAccess(cmd, state);
-                    return (s, [e]);
-                }
+                return [RevokeWalletAccess(cmd, state)];
             case ResetRedemptionWindow cmd:
-                {
-                    var (s, e) = ResetRedemptionWindow(cmd, state);
-                    return (s, [e]);
-                }
+                return [ResetRedemptionWindow(cmd, state)];
             case DeactivateWallet _:
                 return DeactivateWallet(state);
             case CloseWallet _:
@@ -193,34 +222,32 @@ public static class LoyaltyWalletDecider
         }
     }
 
-    public static (LoyaltyWallet State, LoyaltyWalletEvent[] Events) OpenLoyaltyWallet(
+    public static IReadOnlyList<LoyaltyWalletEvent> OpenLoyaltyWallet(
         OpenLoyaltyWallet command,
         LoyaltyWallet state)
     {
         if (state is not NotExisting)
-            return (state, []);
+            return [];
 
         var wallet = Open(command.WalletNumber, command.OwnerId, command.Cadence, command.MaxRedemptionCount);
-        return (wallet, [new LoyaltyWalletEvent.LoyaltyWalletOpened(
+        return [new LoyaltyWalletEvent.LoyaltyWalletOpened(
             wallet.WalletNumber,
             wallet.OwnerId,
             wallet.Cadence,
             command.MaxRedemptionCount,
             wallet.PointsLimit.EarnedPoints,
-            wallet.PointsLimit.RedeemedPoints)]);
+            wallet.PointsLimit.RedeemedPoints)];
     }
 
-    public static (LoyaltyWallet.Active State, LoyaltyWalletEvent.LoyaltyPointsEarned Event) EarnLoyaltyPoints(
+    public static LoyaltyWalletEvent.LoyaltyPointsEarned EarnLoyaltyPoints(
         EarnLoyaltyPoints command,
         LoyaltyWallet state)
     {
         var wallet = AssertActive(state);
-        var earned = wallet with { PointsLimit = wallet.PointsLimit.Earn(command.Points) };
-        return (earned, new LoyaltyWalletEvent.LoyaltyPointsEarned(
-            wallet.WalletNumber, wallet.OwnerId, command.Points, command.At));
+        return new LoyaltyWalletEvent.LoyaltyPointsEarned(wallet.WalletNumber, wallet.OwnerId, command.Points, command.At);
     }
 
-    public static (LoyaltyWallet.Active State, LoyaltyWalletEvent.LoyaltyPointsRedeemed Event) RedeemLoyaltyPoints(
+    public static LoyaltyWalletEvent.LoyaltyPointsRedeemed RedeemLoyaltyPoints(
         RedeemLoyaltyPoints command,
         LoyaltyWallet state)
     {
@@ -236,44 +263,39 @@ public static class LoyaltyWalletDecider
         if (wallet.PointsLimit.AvailablePoints.Value < burned.Value)
             throw new InvalidOperationException("Not enough points to redeem");
 
-        return (wallet with { PointsLimit = wallet.PointsLimit.Redeem(burned) },
-            new LoyaltyWalletEvent.LoyaltyPointsRedeemed(
-                wallet.WalletNumber, wallet.OwnerId, command.MemberId,
-                command.Points, burned, command.At));
+        return new LoyaltyWalletEvent.LoyaltyPointsRedeemed(
+            wallet.WalletNumber, wallet.OwnerId, command.MemberId,
+            command.Points, burned, command.At);
     }
 
-    public static (Active State, LoyaltyWalletEvent.RedemptionCadenceSet Event) SetRedemptionCadence(
+    public static LoyaltyWalletEvent.RedemptionCadenceSet SetRedemptionCadence(
         SetRedemptionCadence command,
         LoyaltyWallet state)
     {
         var wallet = AssertActive(state);
-        return (wallet with { Cadence = command.Cadence },
-            new LoyaltyWalletEvent.RedemptionCadenceSet(wallet.WalletNumber, wallet.OwnerId, command.Cadence));
+        return new LoyaltyWalletEvent.RedemptionCadenceSet(wallet.WalletNumber, wallet.OwnerId, command.Cadence);
     }
 
-    public static (LoyaltyWallet.Active State, LoyaltyWalletEvent.RedemptionWindowReset Event) ResetRedemptionWindow(
+    public static LoyaltyWalletEvent.RedemptionWindowReset ResetRedemptionWindow(
         ResetRedemptionWindow command,
         LoyaltyWallet state)
     {
         var wallet = AssertActive(state);
-        return (wallet with { PointsLimit = wallet.PointsLimit.ResetRedemptionCount() },
-            new LoyaltyWalletEvent.RedemptionWindowReset(wallet.WalletNumber, wallet.OwnerId, command.At));
+        return new LoyaltyWalletEvent.RedemptionWindowReset(wallet.WalletNumber, wallet.OwnerId, command.At);
     }
 
-    public static (LoyaltyWallet State, LoyaltyWalletEvent[] Events) DeactivateWallet(LoyaltyWallet state)
+    public static IReadOnlyList<LoyaltyWalletEvent> DeactivateWallet(LoyaltyWallet state)
     {
         if (state is Deactivated)
-            return (state, []);
+            return [];
         var wallet = AssertActive(state);
-        return (
-            new Deactivated(wallet.WalletNumber, wallet.OwnerId, wallet.PointsLimit, wallet.Cadence, wallet.Access),
-            [new LoyaltyWalletEvent.WalletDeactivated(wallet.WalletNumber, wallet.OwnerId)]);
+        return [new LoyaltyWalletEvent.WalletDeactivated(wallet.WalletNumber, wallet.OwnerId)];
     }
 
-    public static (LoyaltyWallet State, LoyaltyWalletEvent[] Events) CloseWallet(LoyaltyWallet state)
+    public static IReadOnlyList<LoyaltyWalletEvent> CloseWallet(LoyaltyWallet state)
     {
         if (state is Closed)
-            return (state, []);
+            return [];
         if (state is NotExisting)
             throw new InvalidOperationException("Wallet doesn't exist");
         var walletNumber = state switch
@@ -282,25 +304,23 @@ public static class LoyaltyWalletDecider
             Deactivated d => d.WalletNumber,
             _ => throw new InvalidOperationException("Unexpected state")
         };
-        return (new Closed(walletNumber), [new LoyaltyWalletEvent.WalletClosed(walletNumber)]);
+        return [new LoyaltyWalletEvent.WalletClosed(walletNumber)];
     }
 
-    public static (Active State, LoyaltyWalletEvent.WalletAccessGranted Event) GrantWalletAccess(
+    public static LoyaltyWalletEvent.WalletAccessGranted GrantWalletAccess(
         GrantWalletAccess command,
         LoyaltyWallet state)
     {
         var wallet = AssertActive(state);
-        return (wallet with { Access = wallet.Access.Add(command.MemberId) },
-            new LoyaltyWalletEvent.WalletAccessGranted(wallet.WalletNumber, wallet.OwnerId, command.MemberId));
+        return new LoyaltyWalletEvent.WalletAccessGranted(wallet.WalletNumber, wallet.OwnerId, command.MemberId);
     }
 
-    public static (Active State, LoyaltyWalletEvent.WalletAccessRevoked Event) RevokeWalletAccess(
+    public static LoyaltyWalletEvent.WalletAccessRevoked RevokeWalletAccess(
         RevokeWalletAccess command,
         LoyaltyWallet state)
     {
         var wallet = AssertActive(state);
-        return (wallet with { Access = wallet.Access.Revoke(command.MemberId) },
-            new LoyaltyWalletEvent.WalletAccessRevoked(wallet.WalletNumber, wallet.OwnerId, command.MemberId));
+        return new LoyaltyWalletEvent.WalletAccessRevoked(wallet.WalletNumber, wallet.OwnerId, command.MemberId);
     }
 
     private static Active AssertActive(LoyaltyWallet state) =>

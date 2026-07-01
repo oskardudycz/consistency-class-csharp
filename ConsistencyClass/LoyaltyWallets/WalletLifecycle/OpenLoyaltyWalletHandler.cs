@@ -7,7 +7,7 @@ public class OpenLoyaltyWalletHandler(GetLoyaltyWallet getLoyaltyWallet, SaveLoy
 {
     public async ValueTask Handle(OpenLoyaltyWallet command)
     {
-        var (state, events) = OpenLoyaltyWallet(command, await getLoyaltyWallet(command.WalletNumber));
-        await saveLoyaltyWallet(state, events);
+        var events = OpenLoyaltyWallet(command, await getLoyaltyWallet(command.WalletNumber));
+        await saveLoyaltyWallet(command.WalletNumber, events);
     }
 }

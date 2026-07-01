@@ -7,8 +7,8 @@ public class CloseWalletHandler(GetLoyaltyWallet getLoyaltyWallet, SaveLoyaltyWa
 {
     public async ValueTask Handle(CloseWallet command)
     {
-        var (state, events) = CloseWallet(await getLoyaltyWallet(command.WalletNumber));
+        var events = CloseWallet(await getLoyaltyWallet(command.WalletNumber));
 
-        await saveLoyaltyWallet(state, events);
+        await saveLoyaltyWallet(command.WalletNumber, events);
     }
 }
