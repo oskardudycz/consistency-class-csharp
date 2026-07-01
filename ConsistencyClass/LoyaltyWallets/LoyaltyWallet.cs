@@ -1,3 +1,6 @@
+using ConsistencyClass.LoyaltyWallets.Access;
+using ConsistencyClass.Membership;
+
 namespace ConsistencyClass.LoyaltyWallets;
 
 using static LoyaltyWallet;
@@ -17,23 +20,28 @@ public abstract record LoyaltyWallet
 
     public record Active(
         WalletNumber WalletNumber,
+        MemberId OwnerId,
         LoyaltyPointsLimit PointsLimit,
-        RedemptionCadence Cadence): LoyaltyWallet;
+        RedemptionCadence Cadence,
+        WalletAccess Access): LoyaltyWallet;
 
     public record Deactivated(
         WalletNumber WalletNumber,
+        MemberId OwnerId,
         LoyaltyPointsLimit PointsLimit,
-        RedemptionCadence Cadence): LoyaltyWallet;
+        RedemptionCadence Cadence,
+        WalletAccess Access): LoyaltyWallet;
 
-    public record Closed: LoyaltyWallet;
+    public record Closed(WalletNumber WalletNumber): LoyaltyWallet;
 
     public static NotExisting Initial() => new();
 
     public static Active Open(
         WalletNumber walletNumber,
+        MemberId ownerId,
         RedemptionCadence cadence,
         RedemptionLimit maxRedemptionCount) =>
-        new(walletNumber, LoyaltyPointsLimit.Initial(maxRedemptionCount), cadence);
+        new(walletNumber, ownerId, LoyaltyPointsLimit.Initial(maxRedemptionCount), cadence, WalletAccess.Of(ownerId));
 
     private LoyaltyWallet() { }
 }
@@ -42,6 +50,7 @@ public abstract record LoyaltyWalletCommand
 {
     public record OpenLoyaltyWallet(
         WalletNumber WalletNumber,
+        MemberId OwnerId,
         RedemptionLimit MaxRedemptionCount,
         RedemptionCadence Cadence): LoyaltyWalletCommand;
 
@@ -51,7 +60,16 @@ public abstract record LoyaltyWalletCommand
 
     public record RedeemLoyaltyPoints(
         WalletNumber WalletNumber,
+        MemberId MemberId,
         LoyaltyPoints Points): LoyaltyWalletCommand;
+
+    public record GrantWalletAccess(
+        WalletNumber WalletNumber,
+        MemberId MemberId): LoyaltyWalletCommand;
+
+    public record RevokeWalletAccess(
+        WalletNumber WalletNumber,
+        MemberId MemberId): LoyaltyWalletCommand;
 
     public record SetRedemptionCadence(
         WalletNumber WalletNumber,
@@ -78,6 +96,8 @@ public static class LoyaltyWalletDecider
             EarnLoyaltyPoints cmd => EarnLoyaltyPoints(cmd, state),
             RedeemLoyaltyPoints cmd => RedeemLoyaltyPoints(cmd, state),
             SetRedemptionCadence cmd => SetRedemptionCadence(cmd, state),
+            GrantWalletAccess cmd => GrantWalletAccess(cmd, state),
+            RevokeWalletAccess cmd => RevokeWalletAccess(cmd, state),
             ResetRedemptionWindow _ => ResetRedemptionWindow(state),
             DeactivateWallet _ => DeactivateWallet(state),
             CloseWallet _ => CloseWallet(state),
@@ -88,7 +108,7 @@ public static class LoyaltyWalletDecider
         OpenLoyaltyWallet command,
         LoyaltyWallet state) =>
         state is NotExisting
-            ? Open(command.WalletNumber, command.Cadence, command.MaxRedemptionCount)
+            ? Open(command.WalletNumber, command.OwnerId, command.Cadence, command.MaxRedemptionCount)
             : state;
 
     public static Active EarnLoyaltyPoints(
@@ -104,6 +124,9 @@ public static class LoyaltyWalletDecider
         LoyaltyWallet state)
     {
         var wallet = AssertActive(state);
+
+        if (!wallet.Access.Has(command.MemberId))
+            throw new InvalidOperationException("Not authorized to redeem");
 
         if (wallet.PointsLimit.RedemptionsLeft <= 0)
             throw new InvalidOperationException("Redemption window exhausted");
@@ -133,7 +156,7 @@ public static class LoyaltyWalletDecider
         if (state is Deactivated)
             return state;
         var wallet = AssertActive(state);
-        return new Deactivated(wallet.WalletNumber, wallet.PointsLimit, wallet.Cadence);
+        return new Deactivated(wallet.WalletNumber, wallet.OwnerId, wallet.PointsLimit, wallet.Cadence, wallet.Access);
     }
 
     public static LoyaltyWallet CloseWallet(LoyaltyWallet state)
@@ -142,7 +165,29 @@ public static class LoyaltyWalletDecider
             return state;
         if (state is NotExisting)
             throw new InvalidOperationException("Wallet doesn't exist");
-        return new Closed();
+        var walletNumber = state switch
+        {
+            Active a => a.WalletNumber,
+            Deactivated d => d.WalletNumber,
+            _ => throw new InvalidOperationException("Unexpected state")
+        };
+        return new Closed(walletNumber);
+    }
+
+    public static Active GrantWalletAccess(
+        GrantWalletAccess command,
+        LoyaltyWallet state)
+    {
+        var wallet = AssertActive(state);
+        return wallet with { Access = wallet.Access.Add(command.MemberId) };
+    }
+
+    public static Active RevokeWalletAccess(
+        RevokeWalletAccess command,
+        LoyaltyWallet state)
+    {
+        var wallet = AssertActive(state);
+        return wallet with { Access = wallet.Access.Revoke(command.MemberId) };
     }
 
     private static Active AssertActive(LoyaltyWallet state) =>
