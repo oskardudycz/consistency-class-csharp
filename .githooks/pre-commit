@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+echo "Running dotnet format..."
+dotnet format --no-restore
+
+if ! git diff --quiet; then
+    echo "dotnet format changed files. Review and stage the changes, then commit again."
+    exit 1
+fi

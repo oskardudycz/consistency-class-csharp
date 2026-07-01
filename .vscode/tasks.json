@@ -1,0 +1,52 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "restore",
+            "command": "dotnet",
+            "type": "process",
+            "args": ["restore", "ConsistencyClass.slnx"],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build",
+            "command": "dotnet",
+            "type": "process",
+            "args": ["build", "ConsistencyClass.slnx", "--configuration", "Debug", "--no-restore"],
+            "dependsOn": "restore",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build release",
+            "command": "dotnet",
+            "type": "process",
+            "args": ["build", "ConsistencyClass.slnx", "--configuration", "Release", "--no-restore"],
+            "dependsOn": "restore",
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "test",
+            "command": "dotnet",
+            "type": "process",
+            "args": ["test", "ConsistencyClass.slnx", "--no-build"],
+            "dependsOn": "build",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "watch test",
+            "command": "dotnet",
+            "type": "process",
+            "args": ["watch", "test", "--project", "ConsistencyClass.Tests/ConsistencyClass.Tests.csproj"],
+            "isBackground": true,
+            "problemMatcher": "$msCompile"
+        }
+    ]
+}

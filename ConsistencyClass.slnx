@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="ConsistencyClass.Tests/ConsistencyClass.Tests.csproj" />
+  <Project Path="ConsistencyClass/ConsistencyClass.csproj" />
+</Solution>
